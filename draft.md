@@ -29,4 +29,15 @@ static struct kernfs_syscall_ops cgroup_kf_syscall_ops = {
         .rename                 = cgroup_rename,
 };
 
+
+cgroup_mkdir()
+{
+
+
+
+}
 ```
+
+**the key flow chart**
+
+![Alt text](/pic/cgroup.pdf)
