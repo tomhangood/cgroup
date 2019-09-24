@@ -40,4 +40,4 @@ cgroup_mkdir()
 
 **the key flow chart**
 
-![Alt text](/pic/cgroup.pdf)
+![Alt text](/pic/cgroup.png)
