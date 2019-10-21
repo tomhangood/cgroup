@@ -24,6 +24,31 @@ an instance of the cgroup virtual filesystem associated with it.
 
 ![Alt text](/pic/1.png)
 
+
+常见的4个
+
+task（任务）：cgroups的术语中，task就表示系统的一个进程。
+
+cgroup（控制组）：cgroups 中的资源控制都以cgroup为单位实现。cgroup表示按某种资源控制标准划分而成的任务组，包含一个或多个子系统。一个任务可以加入某个cgroup，也可以从某个cgroup迁移到另外一个cgroup。
+
+subsystem（子系统）：cgroups中的subsystem就是一个资源调度控制器（Resource Controller）。比如CPU子系统可以控制CPU时间分配，内存子系统可以限制cgroup内存使用量。
+
+hierarchy（层级树）：hierarchy由一系列cgroup以一个树状结构排列而成，每个hierarchy通过绑定对应的subsystem进行资源调度。hierarchy中的cgroup节点可以包含零或多个子节点，子节点继承父节点的属性。整个系统可以有多个hierarchy。
+
+另外整理的：
+
+1. css_set:一组关联cgroup的集合.
+2. cgroupfs_root:代表一个hierarchy
+3. cgroup_subsys:代表一个subsystem
+
+subsystem和hierarchy绑定的限制关系：
+
+1.  一个hierarchy上可以绑定一个或者多个subsystem.例如 cpu & memory 绑定到了同一个hierarchy
+2. 一个subsystem不能从某个hierarchy解绑然后绑定到其他的hierarchy 上。 但是当且仅当这些hirearchy的subsystem相同时可以绑定，可以理解为给hierarchy起了别名。(subsystem不能出现在不同的hierarchy上，但是你拷贝了一个hierarchy则是可以的)。
+3. 创建一个hierarchy的时候，系统所有css_set都会和此hierarchy的root cgroup关联。也就相当于所有的task都和root cgroup关联。但是在同一个hierarchy中，一个css_set只能和一个cgroup关联。
+4. fork子进程的时候父子进程在同一个cgroup.但是后续可以修改。
+
+
 #### cgroup how to create: ####
 
 /cgroup
