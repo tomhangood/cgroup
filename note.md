@@ -215,4 +215,6 @@ cgset -r cpuset.cpus=0-1 cpu,memory:/
   ```
   uid 和 gid 分别表示所属的用户和用户组。</br>
 
-  #### subsystem 配置参数用法
+  #### subsystem 配置参数用法</br>
+这部分没什么可说的，直接看下面的博客吧，都是些硬指标：</br>
+https://www.infoq.cn/article/docker-kernel-knowledge-cgroups-resource-isolation
