@@ -59,5 +59,15 @@ Because:如果只有一个 hierarchy，那么所有的 task 都要受到绑定�
 
 ##### cgroups 实现结构讲解
 
-cgroups 的实现本质上是给系统进程挂上钩子（hooks），当 task 运行的过程中涉及到某个资源时就会触发钩子上所附带的 subsystem 进行检测，最终根据资源类别的不同使用对应的技术进行资源限制和优先级分配。</br>
 ![Alt text](/pic/cgrpup1.png)</br>
+**图 5 cgroups 相关结构体一览**</br>
+**NOTE：** 一个 task 只对应一个css_set结构，但是一个css_set可以被多个 task 使用.</br>
+
+**task**:
+1. 一个是css_set * cgroups，表示指向css_set（包含进程相关的 cgroups 信息）的指针.
+2. list_head cg_list，是一个链表的头指针，这个链表包含了所有的链到同一个css_set的 task 进程.</br>
+
+**css_set**:
+每个css_set结构中都包含了一个指向cgroup_subsys_state（**包含进程与一个特定子系统相关的信息**）的指针数组。cgroup_subsys_state则指向了cgroup结构（包含一个 cgroup 的所有信息），通过这种方式间接的把一个进程和 cgroup 联系了起来，如下图 6。</br>
+![Alt text](/pic/cgrpup2.png)</br>
+**图 6 从 task 结构开始找到 cgroup 结构**</br>
