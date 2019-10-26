@@ -59,7 +59,7 @@ Because:如果只有一个 hierarchy，那么所有的 task 都要受到绑定�
 
 ##### cgroups 实现结构讲解
 
-![Alt text](/pic/cgrpup1.png)</br>
+![Alt text](/pic/cgroup1.png)</br>
 **图 5 cgroups 相关结构体一览**</br>
 **NOTE：** 一个 task 只对应一个css_set结构，但是一个css_set可以被多个 task 使用.</br>
 
@@ -69,5 +69,34 @@ Because:如果只有一个 hierarchy，那么所有的 task 都要受到绑定�
 
 **css_set**:
 每个css_set结构中都包含了一个指向cgroup_subsys_state（**包含进程与一个特定子系统相关的信息**）的指针数组。cgroup_subsys_state则指向了cgroup结构（包含一个 cgroup 的所有信息），通过这种方式间接的把一个进程和 cgroup 联系了起来，如下图 6。</br>
-![Alt text](/pic/cgrpup2.png)</br>
+**task ----> cgroup**</br>
+![Alt text](/pic/cgroup2.png)</br>
 **图 6 从 task 结构开始找到 cgroup 结构**</br>
+
+cgroup结构体中有一个list_head css_sets字段，它是一个头指针，指向由cg_cgroup_link（包含 cgroup 与 task 之间多对多关系的信息，后文还会再解释）形成的链表。由此获得的每一个cg_cgroup_link都包含了一个指向css_set * cg字段，指向了每一个 task 的css_set。css_set结构中则包含tasks头指针，指向所有链到此css_set的 task 进程构成的链表。至此，我们就明白如何查看在同一个 cgroup 中的 task 有哪些了，如下图
+**cgroup ----> task**</br>
+![Alt text](/pic/cgroup3.png)</br>
+**图 7 cglink 多对多双向查询**</br>
+
+css_set中有两种方式定位到cgroup：
+1. css->cgroup_subsys_state->cgroup
+2. css->cg_cgroup_link->cgroup</br>
+**Q**:
+but, why there are two ways to locate the cgroup?</br>
+**Because**:task 与 cgroup 之间是多对多的关系.</br>
+Moreover,如果两张表是多对多的关系，那么如果不加入第三张关系表，就必须为一个字段的不同添加许多行记录，导致大量冗余。通过从主表和副表各拿一个主键新建一张关系表，可以提高数据查询的灵活性和效率。<br>
+
+一个 task 可能处于不同的 cgroup，只要这些 cgroup 在不同的 hierarchy 中，并且每个 hierarchy 挂载的子系统不同；另一方面，一个 cgroup 中可以有多个 task，这是显而易见的，但是这些 task 因为可能还存在在别的 cgroup 中，所以它们对应的css_set也不尽相同，所以一个 cgroup 也可以对应多个·css_set。</br>
+
+**NOTE:** 在系统运行之初，内核的主函数就会对root cgroups和css_set进行初始化，每次 task 进行 fork/exit 时，**都会附加（attach）/ 分离（detach）对应的css_set**。</br>
+
+**NOTE:** 添加cg_cgroup_link主要是出于**性能方面**的考虑，一是节省了task_struct结构体占用的内存，二是提升了进程fork()/exit()的速度。</br>
+
+![Alt text](/pic/cgroup4.png)</br>
+**图 8 css_set 与 hashtable 关系**
+当 task 从一个 cgroup 中移动到另一个时，它会得到一个新的css_set指针。如果所要加入的 cgroup 与现有的 cgroup 子系统相同，那么就重复使用现有的css_set，否则就分配一个新css_set。所有的css_set通过一个哈希表进行存放和查询，如上图 8 中所示，hlist_node hlist就指向了css_set_table这个 hash 表。</br>
+
+
+定义子系统的结构体是cgroup_subsys，在图 9 中可以看到，cgroup_subsys中定义了一组函数的接口，让各个子系统自己去实现，类似的思想还被用在了cgroup_subsys_state中，cgroup_subsys_state并没有定义控制信息，只是定义了各个子系统都需要用到的公共信息，由各个子系统各自按需去定义自己的控制信息结构体，最终在自定义的结构体中把cgroup_subsys_state包含进去，然后内核通过container_of（这个宏可以通过一个结构体的成员找到结构体自身）等宏定义来获取对应的结构体。</br>
+![Alt text](/pic/cgroup5.png)</br>
+**图 9 cgroup 子系统结构体**</br>
