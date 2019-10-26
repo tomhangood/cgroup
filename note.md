@@ -100,3 +100,19 @@ Moreover,如果两张表是多对多的关系，那么如果不加入第三张�
 定义子系统的结构体是cgroup_subsys，在图 9 中可以看到，cgroup_subsys中定义了一组函数的接口，让各个子系统自己去实现，类似的思想还被用在了cgroup_subsys_state中，cgroup_subsys_state并没有定义控制信息，只是定义了各个子系统都需要用到的公共信息，由各个子系统各自按需去定义自己的控制信息结构体，最终在自定义的结构体中把cgroup_subsys_state包含进去，然后内核通过container_of（这个宏可以通过一个结构体的成员找到结构体自身）等宏定义来获取对应的结构体。</br>
 ![Alt text](/pic/cgroup5.png)</br>
 **图 9 cgroup 子系统结构体**</br>
+
+对于container_of这部分，以下面的freezer为例：</br>
+```
+struct freezer {
+	struct cgroup_subsys_state	css;
+	unsigned int			state;
+};
+
+static DEFINE_MUTEX(freezer_mutex);
+
+static inline struct freezer *css_freezer(struct cgroup_subsys_state *css)
+{
+	return css ? container_of(css, struct freezer, css) : NULL;
+}
+
+```
