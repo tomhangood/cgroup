@@ -51,3 +51,13 @@ Because:如果只有一个 hierarchy，那么所有的 task 都要受到绑定�
 **规则 4**： 进程（task）在 fork 自身时创建的子任务（child task）默认与原 task 在同一个 cgroup 中，但是 child task 允许被移动到不同的 cgroup 中。即 fork 完成后，父子进程间是完全独立的。如下图 4 中，小圈中的数字表示 task 出现的时间顺序，当httpd刚 fork 出另一个httpd时，在同一个 hierarchy 中的同一个 cgroup 中。但是随后如果 PID 为 4840 的httpd需要移动到其他 cgroup 也是可以的，因为父子任务间已经独立。总结起来就是：初始化时子任务与父任务在同一个 cgroup，但是这种关系随后可以改变。</br>
 ![Alt text](/pic/pic_4.png)</br>
 **图 4 刚 fork 出的子进程在初始状态与其父进程处于同一个 cgroup**</br>
+
+**NOTE:** subsystem 实际上就是 cgroups 的资源控制系统，每种 subsystem 独立地控制一种资源</br>
+
+
+#### cgroups 实现方式及工作原理简介
+
+##### cgroups 实现结构讲解
+
+cgroups 的实现本质上是给系统进程挂上钩子（hooks），当 task 运行的过程中涉及到某个资源时就会触发钩子上所附带的 subsystem 进行检测，最终根据资源类别的不同使用对应的技术进行资源限制和优先级分配。</br>
+![Alt text](/pic/cgrpup1.png)</br>
