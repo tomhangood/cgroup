@@ -122,11 +122,12 @@ static inline struct freezer *css_freezer(struct cgroup_subsys_state *css)
 https://www.infoq.cn/article/docker-kernel-knowledge-cgroups-resource-isolation </br>
 了解了 cgroups 实现的代码结构以后，再来看用户层在使用 cgroups 时的限制，会更加清晰。
 
-在实际的使用过程中，你需要通过挂载（mount）cgroup文件系统新建一个层级结构，挂载时指定要绑定的子系统，缺省情况下默认绑定系统所有子系统。把 cgroup 文件系统挂载（mount）上以后，你就可以像操作文件一样对 cgroups 的 hierarchy 层级进行浏览和操作管理（包括权限管理、子文件管理等等）。除了 cgroup 文件系统以外，内核没有为 cgroups 的访问和操作添加任何系统调用。
+在实际的使用过程中，你需要通过挂载（mount）cgroup文件系统新建一个层级结构，挂载时指定要绑定的子系统，缺省情况下默认绑定系统所有子系统。把 cgroup 文件系统挂载（mount）上以后，你就可以像操作文件一样对 cgroups 的 hierarchy 层级进行浏览和操作管理（包括权限管理、子文件管理等等）。**除了 cgroup 文件系统以外，内核没有为 cgroups 的访问和操作添加任何系统调用**。
 
-如果新建的层级结构要绑定的子系统与目前已经存在的层级结构完全相同，那么新的挂载会重用原来已经存在的那一套（指向相同的 css_set）。否则如果要绑定的子系统已经被别的层级绑定，就会返回挂载失败的错误。如果一切顺利，挂载完成后层级就被激活并与相应子系统关联起来，可以开始使用了。
+如果新建的层级结构要绑定的子系统与目前已经存在的层级结构完全相同，那么新的挂载会重用原来已经存在的那一套（**指向相同的 css_set**）。否则如果要绑定的子系统已经被别的层级绑定，就会返回挂载失败的错误。如果一切顺利，挂载完成后层级就被激活并与相应子系统关联起来，可以开始使用了。
 
-目前无法将一个新的子系统绑定到激活的层级上，或者从一个激活的层级中解除某个子系统的绑定。
+**NOTE:**</br>
+**目前无法将一个新的子系统绑定到激活的层级上，或者从一个激活的层级中解除某个子系统的绑定。**
 
 当一个顶层的 cgroup 文件系统被卸载（umount）时，如果其中创建后代 cgroup 目录，那么就算上层的 cgroup 被卸载了，层级也是激活状态，其后代 cgoup 中的配置依旧有效。只有递归式的卸载层级中的所有 cgoup，那个层级才会被真正删除。
 
@@ -134,10 +135,84 @@ https://www.infoq.cn/article/docker-kernel-knowledge-cgroups-resource-isolation 
 
 一个 cgroup 创建完成，不管绑定了何种子系统，其目录下都会生成以下几个文件，用来描述 cgroup 的相应信息。同样，把相应信息写入这些配置文件就可以生效，内容如下。
 
-tasks：这个文件中罗列了所有在该 cgroup 中 task 的 PID。该文件并不保证 task 的 PID 有序，把一个 task 的 PID 写到这个文件中就意味着把这个 task 加入这个 cgroup 中。
-cgroup.procs：这个文件罗列所有在该 cgroup 中的线程组 ID。该文件并不保证线程组 ID 有序和无重复。写一个线程组 ID 到这个文件就意味着把这个组中所有的线程加到这个 cgroup 中。
+tasks：这个文件中罗列了所有在该 cgroup 中 task 的 PID。该文件并不保证 task 的 PID 有序，把一个 task 的 PID 写到这个文件中就意味着把这个 task 加入这个 cgroup 中。</br>
+cgroup.procs：这个文件罗列所有在该 cgroup 中的线程组 ID。该文件并不保证线程组 ID 有序和无重复。写一个线程组 ID 到这个文件就意味着把这个组中所有的线程加到这个 cgroup 中。</br>
 notify_on_release：填 0 或 1，表示是否在 cgroup 中最后一个 task 退出时通知运行release agent，默认情况下是 0，表示不运行。
-release_agent：指定 release agent 执行脚本的文件路径（该文件在最顶层 cgroup 目录中存在），在这个脚本通常用于自动化umount无用的 cgroup。
+release_agent：指定 release agent 执行脚本的文件路径（该文件在最顶层 cgroup 目录中存在），**在这个脚本通常用于自动化umount无用的 cgroup。**</br>
 除了上述几个通用的文件以外，绑定特定子系统的目录下也会有其他的文件进行子系统的参数配置。
 
 在创建的 hierarchy 中创建文件夹，就类似于 fork 中一个后代 cgroup，后代 cgroup 中默认继承原有 cgroup 中的配置属性，但是你可以根据需求对配置参数进行调整。这样就把一个大的 cgroup 系统分割成一个个嵌套的、可动态变化的“软分区”。
+
+
+#### cgroups 的使用方法:</br>
+**查询 cgroup 及子系统挂载状态:**</br>
+1. 查看所有的 cgroup：lscgroup
+2. 查看所有支持的子系统：lssubsys -a
+3. 查看所有子系统挂载的位置： lssubsys –m
+4. 查看单个子系统（如 memory）挂载位置：lssubsys –m memory</br>
+**创建 hierarchy 层级并挂载子系统:**</br>
+使用 cgroup 的最佳方式是：为想要管理的每个或每组资源创建单独的 cgroup 层级结构。而创建 hierarchy 并不神秘，实际上就是**做一个标记**，通过挂载一个 tmpfs{![基于内存的临时文件系统，详见：http://en.wikipedia.org/wiki/Tmpfs]}文件系统，并给一个好的名字就可以了，系统默认挂载的 cgroup 就会进行如下操作。</br>
+```
+mount -t tmpfs cgroups /sys/fs/cgroup
+
+```
+其中-t即指定挂载的文件系统类型，其后的cgroups是会出现在mount展示的结果中用于标识，可以选择一个有用的名字命名，最后的目录则表示文件的挂载点位置。</br>
+
+挂载完成tmpfs后就可以通过mkdir命令创建相应的文件夹。</br>
+```
+mkdir /sys/fs/cgroup/cg1
+
+```
+再把子系统挂载到相应层级上，挂载子系统也使用 mount 命令，语法如下。</br>
+```
+mount -t cgroup -o subsystems name /cgroup/name
+
+```
+其​​​中​​​ subsystems 是​​​使​​​用​​​,（逗号）​​​分​​​开​​​的​​​子​​​系​​​统​​​列​​​表，name 是​​​层​​​级​​​名​​​称​​​。具体我们以挂载 cpu 和 memory 的子系统为例，命令如下。</br>
+```
+mount –t cgroup –o cpu,memory cpu_and_mem /sys/fs/cgroup/cg1
+
+```
+从mount命令开始，-t后面跟的是挂载的文件系统类型，即cgroup文件系统。-o后面跟要挂载的子系统种类如cpu、memory，用逗号隔开，其后的cpu_and_mem不被 cgroup 代码的解释，但会出现在 /proc/mounts 里，可以使用任何有用的标识字符串。最后的参数则表示挂载点的目录位置。</br>
+
+说明：如果挂载时提示mount: agent already mounted or /cgroup busy，则表示子系统已经挂载，需要先卸载原先的挂载点，通过第二条中描述的命令可以定位挂载点。</br>
+
+**卸载 cgroup**</br>
+目前cgroup文件系统虽然支持重新挂载，但是官方不建议使用，重新挂载虽然可以改变绑定的子系统和release agent，但是它要求对应的 hierarchy 是空的并且 release_agent 会被传统的fsnotify（内核默认的文件系统通知）代替，这就导致重新挂载很难生效，未来重新挂载的功能可能会移除。你可以通过卸载，再挂载的方式处理这样的需求。
+
+卸载 cgroup 非常简单，你可以通过cgdelete命令，也可以通过rmdir，以刚挂载的 cg1 为例，命令如下。</br>
+```
+rmdir /sys/fs/cgroup/cg1
+
+```
+rmdir 执行成功的必要条件是 cg1 下层没有创建其它 cgroup，cg1 中没有添加任何 task，并且它也没有被别的 cgroup 所引用。
+
+cgdelete cpu,memory:/ 使用cgdelete命令可以递归的删除 cgroup 及其命令下的后代 cgroup，并且如果 cgroup 中有 task，那么 task 会自动移到上一层没有被删除的 cgroup 中，如果所有的 cgroup 都被删除了，那 task 就不被 cgroups 控制。但是一旦再次创建一个新的 cgroup，所有进程都会被放进新的 cgroup 中。</br>
+
+**设置 cgroups 参数**</br>
+设置 cgroups 参数非常简单，直接对之前创建的 cgroup 对应文件夹下的文件写入即可，举例如下。</br>
+```
+设置 task 允许使用的 cpu 为 0 和 1. echo 0-1 > /sys/fs/cgroup/cg1/cpuset.cpus
+
+```
+使用cgset命令也可以进行参数设置，对应上述允许使用 0 和 1cpu 的命令为：</br>
+```
+cgset -r cpuset.cpus=0-1 cpu,memory:/
+
+```
+**添加 task 到 cgroup**</br>
+通过文件操作进行添加 echo [PID] > /path/to/cgroup/tasks 上述命令就是把进程 ID 打印到 tasks 中，如果 tasks 文件中已经有进程，需要使用">>"向后添加。
+
+通过cgclassify将进程添加到 cgroup cgclassify -g subsystems:path_to_cgroup pidlist 这个命令中，subsystems指的就是子系统（如果使用 man 命令查看，可能也会使用 controllers 表示）​​​，如果 mount 了多个，就是用","隔开的子系统名字作为名称，类似cgset命令。
+
+通过cgexec直接在 cgroup 中启动并执行进程 cgexec -g subsystems:path_to_cgroup command arguments command和arguments就表示要在 cgroup 中执行的命令和参数。cgexec常用于执行临时的任务。</br>
+
+**权限管理**</br>
+  与文件的权限管理类似，通过chown就可以对 cgroup 文件系统进行权限管理。</br>
+  ```
+  chown uid:gid /path/to/cgroup
+
+  ```
+  uid 和 gid 分别表示所属的用户和用户组。</br>
+
+  #### subsystem 配置参数用法
