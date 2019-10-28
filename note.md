@@ -498,6 +498,27 @@ struct cgroup {
 ```
 这里看到一个新的结构，wait_queue_head_t，这个结构是用来将一个资源挂在等待队列中，具体参考：http://www.cnblogs.com/lubiao/p/4858086.html
 
+**Key Point**:</br>
+// 一个cgroup属于多个css，这里就是保存了cgroup和css直接多对多关系的另一半</br>
+```
+struct cgroup_subsys_state __rcu  *subsys[CGROUP_SUBSYS_COUNT];</br>
+
+```
+
+// 相同css_set的cgroup链表 </br>
+struct list_head cset_links;</br>
+
+// 这个cgroup使用的所有子系统的每个链表</br>
+struct list_head e_csets[CGROUP_SUBSYS_COUNT];</br>
+
+**NOTE:**</br>
+1. 在cgroup中，有以cgroup_root为跟的一颗树。
+2. 有具有相同css_set的所有cgroup的链表。
+3. 有本cgroup所包含的css的资源。
+4. 本cgroup所使用的所有的子系统的每个链表。
+
+这些cgroup中的树和链表，可以对照着cgroup_subsys_state所拥有的树和链表来对照着看，用于理清期间的关系。</br>
+
 还有一个结构是**cgroup_root**</br>
 ```
 struct cgroup_root {
@@ -535,4 +556,62 @@ struct cgroup_root {
 };
 
 ```
+
 -------
+
+### cgroup的函数
+#### cgroup_init_early
+
+```
+int __init cgroup_init_early(void)
+{
+    // 初始化cgroup_root，就是一个cgroup_root的结构
+    init_cgroup_root(&cgrp_dfl_root, &opts);
+    cgrp_dfl_root.cgrp.self.flags |= CSS_NO_REF;
+
+    RCU_INIT_POINTER(init_task.cgroups, &init_css_set);
+
+    for_each_subsys(ss, i) {
+        WARN(!ss->css_alloc || !ss->css_free || ss->name || ss->id,
+             "invalid cgroup_subsys %d:%s css_alloc=%p css_free=%p id:name=%d:%s\n",
+             i, cgroup_subsys_name[i], ss->css_alloc, ss->css_free,
+             ss->id, ss->name);
+        WARN(strlen(cgroup_subsys_name[i]) > MAX_CGROUP_TYPE_NAMELEN,
+             "cgroup_subsys_name %s too long\n", cgroup_subsys_name[i]);
+
+        ss->id = i;
+        ss->name = cgroup_subsys_name[i];
+        if (!ss->legacy_name)
+            ss->legacy_name = cgroup_subsys_name[i];
+
+        if (ss->early_init)
+            cgroup_init_subsys(ss, true);
+    }
+    return 0;
+}int __init cgroup_init_early(void)
+{
+    // 初始化cgroup_root，就是一个cgroup_root的结构
+    init_cgroup_root(&cgrp_dfl_root, &opts);
+    cgrp_dfl_root.cgrp.self.flags |= CSS_NO_REF;
+
+    RCU_INIT_POINTER(init_task.cgroups, &init_css_set);
+
+    for_each_subsys(ss, i) {
+        WARN(!ss->css_alloc || !ss->css_free || ss->name || ss->id,
+             "invalid cgroup_subsys %d:%s css_alloc=%p css_free=%p id:name=%d:%s\n",
+             i, cgroup_subsys_name[i], ss->css_alloc, ss->css_free,
+             ss->id, ss->name);
+        WARN(strlen(cgroup_subsys_name[i]) > MAX_CGROUP_TYPE_NAMELEN,
+             "cgroup_subsys_name %s too long\n", cgroup_subsys_name[i]);
+
+        ss->id = i;
+        ss->name = cgroup_subsys_name[i];
+        if (!ss->legacy_name)
+            ss->legacy_name = cgroup_subsys_name[i];
+
+        if (ss->early_init)
+            cgroup_init_subsys(ss, true);
+    }
+    return 0;
+}
+```
