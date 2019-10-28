@@ -244,7 +244,48 @@ https://www.infoq.cn/article/docker-kernel-knowledge-cgroups-resource-isolation
 
 ```
 **css_set**</br>
+include/linux/cgroup-defs.h</br>
+```
+struct css_set {
+    // 引用计数，gc使用，如果子系统有引用到这个css_set,则计数＋1
+    atomic_t refcount;
 
+     // TODO: 列出有相同hash值的cgroup（还不清楚为什么）
+    struct hlist_node hlist;
+
+     // 将所有的task连起来。mg_tasks代表迁移的任务
+    struct list_head tasks;
+    struct list_head mg_tasks;
+     // 将这个css_set对应的cgroup连起来
+    struct list_head cgrp_links;
+
+    // 默认连接的cgroup
+    struct cgroup *dfl_cgrp;
+
+     // 包含一系列的css(cgroup_subsys_state)，css就是子系统，这个就代表了css_set和子系统的多对多的其中一面
+    struct cgroup_subsys_state *subsys[CGROUP_SUBSYS_COUNT];
+
+    // 内存迁移的时候产生的系列数据
+    struct list_head mg_preload_node;
+    struct list_head mg_node;
+    struct cgroup *mg_src_cgrp;
+    struct cgroup *mg_dst_cgrp;
+    struct css_set *mg_dst_cset;
+
+    // 把->subsys[ssid]->cgroup->e_csets[ssid]结构展平放在这里，提高迭代效率
+    struct list_head e_cset_node[CGROUP_SUBSYS_COUNT];
+
+     // 所有迭代任务的列表，这个补丁参考:https://patchwork.kernel.org/patch/7368941/
+    struct list_head task_iters;
+
+    // 这个css_set是否已经无效了
+    bool dead;
+
+    // rcu锁所需要的callback等信息
+    struct rcu_head rcu_head;
+};
+
+```
 **cgroup_subsys_state**</br>
 
 **cgroup_subsys**</br>
