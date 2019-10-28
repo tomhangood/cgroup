@@ -12,6 +12,8 @@
 
 实现 cgroups 的主要目的是为不同用户层面的资源管理，提供一个**统一化的接口。** </br>
 
+subsystem: 它类似于我们在netfilter中的过滤hook.比如上面的CPU占用率就是一个subsystem.简而言之.subsystem就是cgroup中可添加删除的模块.在cgroup架构的封装下为cgroup提供多种行为控制.subsystem在下文中简写成subsys.</br>
+
 ##### cgroups 的作用
 
 1. 资源限制（Resource Limitation）：cgroups 可以对进程组使用的资源总额进行限制。如设定应用运行时使用内存的上限，一旦超过这个配额就发出 OOM（Out of Memory）。
@@ -449,6 +451,7 @@ struct cgroup {
     // cgroup所在css
     struct cgroup_subsys_state self;
 
+    //cgroup的标志
     unsigned long flags;
 
     int id;
@@ -522,7 +525,7 @@ struct list_head e_csets[CGROUP_SUBSYS_COUNT];</br>
 还有一个结构是**cgroup_root**</br>
 ```
 struct cgroup_root {
-     // TODO: 不清楚
+     //cgroup文件系统的超级块
     struct kernfs_root *kf_root;
 
     // 子系统掩码
@@ -548,7 +551,8 @@ struct cgroup_root {
     // TODO: 不清楚
     struct idr cgroup_idr;
 
-    // TODO: 不清楚
+    /* The path to use for release notifications. */
+    // 我们在后面再来详细分析
     char release_agent_path[PATH_MAX];
 
     // 这个层级的名称，有可能为空
@@ -557,10 +561,21 @@ struct cgroup_root {
 
 ```
 
+**NOTE:** </br>
+其实,struct cgroupfs_root和struct cgroup就是表示了一种空间层次关系,它就对应着挂着点下面的文件示图.</br>
+
 -------
 
 ### cgroup的函数
-#### cgroup_init_early
+#### cgroup初始化
+
+Cgroup的初始化包括两个部份.即cgroup_init_early()和cgroup_init().分别表示在系统初始时的初始化和系统初始化完成时的初始化.分为这两个部份是因为有些subsys是要在系统刚启动的时候就必须要初始化的.
+
+**cgroup_init_early**</br>
+本函数主要完成:</br>
+1. 初始化cgroup_root.
+2. 初始化全局量init_css_set.
+3. 对一些需要在系统启动时初始化的subsys进行初始化.
 
 ```
 int __init cgroup_init_early(void)
@@ -569,8 +584,10 @@ int __init cgroup_init_early(void)
     init_cgroup_root(&cgrp_dfl_root, &opts);
     cgrp_dfl_root.cgrp.self.flags |= CSS_NO_REF;
 
+    //初始化全局量init_css_set
     RCU_INIT_POINTER(init_task.cgroups, &init_css_set);
 
+    //对一些需要在系统启动时初始化的subsys进行初始化
     for_each_subsys(ss, i) {
         WARN(!ss->css_alloc || !ss->css_free || ss->name || ss->id,
              "invalid cgroup_subsys %d:%s css_alloc=%p css_free=%p id:name=%d:%s\n",
@@ -584,34 +601,225 @@ int __init cgroup_init_early(void)
         if (!ss->legacy_name)
             ss->legacy_name = cgroup_subsys_name[i];
 
-        if (ss->early_init)
-            cgroup_init_subsys(ss, true);
-    }
-    return 0;
-}int __init cgroup_init_early(void)
-{
-    // 初始化cgroup_root，就是一个cgroup_root的结构
-    init_cgroup_root(&cgrp_dfl_root, &opts);
-    cgrp_dfl_root.cgrp.self.flags |= CSS_NO_REF;
-
-    RCU_INIT_POINTER(init_task.cgroups, &init_css_set);
-
-    for_each_subsys(ss, i) {
-        WARN(!ss->css_alloc || !ss->css_free || ss->name || ss->id,
-             "invalid cgroup_subsys %d:%s css_alloc=%p css_free=%p id:name=%d:%s\n",
-             i, cgroup_subsys_name[i], ss->css_alloc, ss->css_free,
-             ss->id, ss->name);
-        WARN(strlen(cgroup_subsys_name[i]) > MAX_CGROUP_TYPE_NAMELEN,
-             "cgroup_subsys_name %s too long\n", cgroup_subsys_name[i]);
-
-        ss->id = i;
-        ss->name = cgroup_subsys_name[i];
-        if (!ss->legacy_name)
-            ss->legacy_name = cgroup_subsys_name[i];
-
+        //需要在early init初始化的subsystem，这里就进行初始化
         if (ss->early_init)
             cgroup_init_subsys(ss, true);
     }
     return 0;
 }
+
 ```
+这个函数初始化的cgroup_root是一个全局的变量。定义在kernel/cgroup.c中。
+```
+struct cgroup_root cgrp_dfl_root;
+EXPORT_SYMBOL_GPL(cgrp_dfl_root);
+```
+
+**init_cgroup_root**</br>
+
+它先初始化root中的几条链表.因为root中有一个top_cgroup，即(root->cgrp).因此将root->nr_cgrps置为1.然后,对root->cgrp进行初始化.使root->cgrp.root指向root. root->cgrp.top_cgroup指向它的本身.因为root->cgrp就是目录下的第一个cgroup.
+最后在init_cgroup_housekeeping()初始化cgroup的链表和读写锁.
+```
+static void init_cgroup_root(struct cgroup_root *root,
+			     struct cgroup_sb_opts *opts)
+{
+	struct cgroup *cgrp = &root->cgrp;
+
+	INIT_LIST_HEAD(&root->root_list);
+	atomic_set(&root->nr_cgrps, 1);
+	cgrp->root = root;
+
+  //初始化cgroup的链表和读写锁
+	init_cgroup_housekeeping(cgrp);
+	idr_init(&root->cgroup_idr);
+
+	root->flags = opts->flags;
+	if (opts->release_agent)
+		strcpy(root->release_agent_path, opts->release_agent);
+	if (opts->name)
+		strcpy(root->name, opts->name);
+	if (opts->cpuset_clone_children)
+		set_bit(CGRP_CPUSET_CLONE_CHILDREN, &root->cgrp.flags);
+}
+
+```
+
+**cgroup_init_subsys**</br>
+在这个函数中:
+1. 将每个要注册的subsys->root都指向rootnode.
+2. 调用ss->css_alloc()生成一个cgroup_subsys_state.
+3. 调用init_and_link_css()将dummytop.subsys[i]设置成ss->create()生成的cgroup_subsys_state
+4. 更新init_css_set->subsys()对应项的值.
+5. 将ss->active设为1.表示它已经初始化了.
+
+```
+static void __init cgroup_init_subsys(struct cgroup_subsys *ss, bool early)
+{
+	struct cgroup_subsys_state *css;
+
+	pr_debug("Initializing cgroup subsys %s\n", ss->name);
+
+	mutex_lock(&cgroup_mutex);
+
+	idr_init(&ss->css_idr);
+	INIT_LIST_HEAD(&ss->cfts);
+
+	/* Create the root cgroup state for this subsystem */
+	ss->root = &cgrp_dfl_root;
+	css = ss->css_alloc(cgroup_css(&cgrp_dfl_root.cgrp, ss));
+	/* We don't handle early failures gracefully */
+	BUG_ON(IS_ERR(css));
+	init_and_link_css(css, ss, &cgrp_dfl_root.cgrp);
+
+	/*
+	 * Root csses are never destroyed and we can't initialize
+	 * percpu_ref during early init.  Disable refcnting.
+	 */
+	css->flags |= CSS_NO_REF;
+
+	if (early) {
+		/* allocation can't be done safely during early init */
+		css->id = 1;
+	} else {
+		css->id = cgroup_idr_alloc(&ss->css_idr, css, 1, 2, GFP_KERNEL);
+		BUG_ON(css->id < 0);
+	}
+
+	/* Update the init_css_set to contain a subsys
+	 * pointer to this state - since the subsystem is
+	 * newly registered, all tasks and hence the
+	 * init_css_set is in the subsystem's root cgroup. */
+	init_css_set.subsys[ss->id] = css;
+
+	have_fork_callback |= (bool)ss->fork << ss->id;
+	have_exit_callback |= (bool)ss->exit << ss->id;
+	have_free_callback |= (bool)ss->free << ss->id;
+	have_canfork_callback |= (bool)ss->can_fork << ss->id;
+
+	/* At system boot, before all subsystems have been
+	 * registered, no tasks have been forked, so we don't
+	 * need to invoke fork callbacks here. */
+	BUG_ON(!list_empty(&init_task.tasks));
+
+	BUG_ON(online_css(css));
+
+	mutex_unlock(&cgroup_mutex);
+}
+
+```
+
+**cgroup_init()**</br>
+本函数在early cgroup初始化之后，cgroup_init()是cgroup的第二阶段的初始化。
+
+这个函数比较简单.首先.它将剩余的subsys初始化.然后将init_css_set添加进哈希数组css_set_table[ ]中.在上面的代码中css_set_hash()是css_set_table的哈希函数.它是css_set->subsys为哈希键值,到css_set_table[ ]中找到对应项.然后调用hlist_add_head()将init_css_set添加到冲突项中.
+然后,注册了cgroup文件系统.这个文件系统也是我们在用户空间使用cgroup时必须挂载的.
+最后,在proc的根目录下创建了一个名为cgroups的文件.用来从用户空间观察cgroup的状态.</br>
+
+```
+/**
+ * cgroup_init - cgroup initialization
+ *
+ * Register cgroup filesystem and /proc file, and initialize
+ * any subsystems that didn't request early init.
+ */
+int __init cgroup_init(void)
+{
+	struct cgroup_subsys *ss;
+	int ssid;
+
+	BUILD_BUG_ON(CGROUP_SUBSYS_COUNT > 16);
+	BUG_ON(percpu_init_rwsem(&cgroup_threadgroup_rwsem));
+	BUG_ON(cgroup_init_cftypes(NULL, cgroup_dfl_base_files));
+	BUG_ON(cgroup_init_cftypes(NULL, cgroup_legacy_base_files));
+
+	get_user_ns(init_cgroup_ns.user_ns);
+
+	mutex_lock(&cgroup_mutex);
+
+	/*
+	 * Add init_css_set to the hash table so that dfl_root can link to
+	 * it during init.
+	 */
+	hash_add(css_set_table, &init_css_set.hlist,
+		 css_set_hash(init_css_set.subsys));
+
+	BUG_ON(cgroup_setup_root(&cgrp_dfl_root, 0));
+
+	mutex_unlock(&cgroup_mutex);
+
+  //将剩下的(不需要在系统启动时初始化的subsys)的subsys进行初始化
+	for_each_subsys(ss, ssid) {
+		if (ss->early_init) {
+			struct cgroup_subsys_state *css =
+				init_css_set.subsys[ss->id];
+
+			css->id = cgroup_idr_alloc(&ss->css_idr, css, 1, 2,
+						   GFP_KERNEL);
+			BUG_ON(css->id < 0);
+		} else {
+			cgroup_init_subsys(ss, false);
+		}
+
+		list_add_tail(&init_css_set.e_cset_node[ssid],
+			      &cgrp_dfl_root.cgrp.e_csets[ssid]);
+
+		/*
+		 * Setting dfl_root subsys_mask needs to consider the
+		 * disabled flag and cftype registration needs kmalloc,
+		 * both of which aren't available during early_init.
+		 */
+		if (cgroup_disable_mask & (1 << ssid)) {
+			static_branch_disable(cgroup_subsys_enabled_key[ssid]);
+			printk(KERN_INFO "Disabling %s control group subsystem\n",
+			       ss->name);
+			continue;
+		}
+
+		if (cgroup_ssid_no_v1(ssid))
+			printk(KERN_INFO "Disabling %s control group subsystem in v1 mounts\n",
+			       ss->name);
+
+		cgrp_dfl_root.subsys_mask |= 1 << ss->id;
+
+		if (ss->implicit_on_dfl)
+			cgrp_dfl_implicit_ss_mask |= 1 << ss->id;
+		else if (!ss->dfl_cftypes)
+			cgrp_dfl_inhibit_ss_mask |= 1 << ss->id;
+
+		if (ss->dfl_cftypes == ss->legacy_cftypes) {
+			WARN_ON(cgroup_add_cftypes(ss, ss->dfl_cftypes));
+		} else {
+			WARN_ON(cgroup_add_dfl_cftypes(ss, ss->dfl_cftypes));
+			WARN_ON(cgroup_add_legacy_cftypes(ss, ss->legacy_cftypes));
+		}
+
+		if (ss->bind)
+			ss->bind(init_css_set.subsys[ssid]);
+	}
+
+	/* init_css_set.subsys[] has been updated, re-hash */
+	hash_del(&init_css_set.hlist);
+	hash_add(css_set_table, &init_css_set.hlist,
+		 css_set_hash(init_css_set.subsys));
+
+	WARN_ON(sysfs_create_mount_point(fs_kobj, "cgroup"));
+
+  //注册cgroup文件系统
+	WARN_ON(register_filesystem(&cgroup_fs_type));
+	WARN_ON(register_filesystem(&cgroup2_fs_type));
+
+  //在proc文件系统的根目录下创建一个名为cgroups的文件
+	WARN_ON(!proc_create("cgroups", 0, NULL, &proc_cgroupstats_operations));
+
+	return 0;
+}
+
+```
+
+#### 阶段性总结：
+
+经过cgroup的两个阶段的初始化, init_css_set, rootnode,subsys已经都初始化完成.表面上看起来它们很复杂,其实,它们只是表示cgroup的初始化状态而已.例如,如果subsys->root等于rootnode,那表示subsys没有被其它的cgroup所使用.</br>
+
+--------
+
+### 父子进程之间的cgroup关联:
