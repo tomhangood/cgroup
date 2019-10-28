@@ -231,7 +231,10 @@ https://www.infoq.cn/article/docker-kernel-knowledge-cgroups-resource-isolation
 **css_set & cgroup & subsystem 关系**</br>
 进程分组css_set，不同层级中的节点cgroup也都有了。那么，就要把节点cgroup和层级进行关联，和数据库中关系表一样。这个事一个多对多的关系。为什么呢？首先，**一个节点可以隶属于多个css_set，这就代表着这批css_set中的进程都拥有这个cgroup所代表的资源**。其次，**一个css_set需要多个cgroup。因为一个层级的cgroup只代表一种或者几种资源，而一般进程是需要多种资源的集合体**。</br>
 
-#### 重要结构体
+#### 重要结构体 <base on 4.8.1>
+
+因为Atom里面对代码中注释的颜色 我还不会加，先把这篇博客地址post这里:</br>
+https://www.cnblogs.com/muahao/p/10280998.html</br>
 
 **task_struct**</br>
 ```
@@ -286,6 +289,25 @@ struct css_set {
 };
 
 ```
+**Q**:</br>// 将这个css_set对应的cgroup连起来</br>
+    struct list_head cgrp_links;</br>
+因为css_set会对应多个不同的cgroup，因为每个cgroup节点代表不同的资源（susbsystem）,那么不同的资源节点即cgroup是一种什么样的组织关系呢？</br>
+
+**Key Point**:</br>
+// 包含一系列的css(cgroup_subsys_state)，css就是子系统，这个就代表了css_set和子系统的多对多的其中一面</br>
+   struct cgroup_subsys_state *subsys[CGROUP_SUBSYS_COUNT];</br>
+
+这里插一句有关rcu的知识：
+>>
+当所有的CPU都通过静止状态之后，call_rcu()接受rcu_head描述符（通常嵌在要被释放的数据结构中）的地址和将要调用的回调函数的地址(*func)作为参数。一旦回调函数被执行，它通常释放数据结构的旧副本。
+struct rcu_head {
+    struct rcu_head *next;
+    void (*func)(struct rcu_head *head);
+};
+>>
+函数call_rcu()把回调函数和其参数的地址存放在rcu_head描述符中，然后把描述符通过next字段插入回调函数的每CPU（per-CPU）链表中。内核每经过一个时钟滴答就周期性地检查本地CPU是否经过了一个静止状态，即上述三种情况。如果所有CPU都经过了静止状态，本地tasklet的描述符存放在每CPU变量rcu_tasklet中就执行每CPU链表中的所有回调函数，释放数据结构的旧副本。
+>>
+
 **cgroup_subsys_state**</br>
 
 **cgroup_subsys**</br>
