@@ -295,21 +295,244 @@ struct css_set {
 
 **Key Point**:</br>
 // 包含一系列的css(cgroup_subsys_state)，css就是子系统，这个就代表了css_set和子系统的多对多的其中一面</br>
-   struct cgroup_subsys_state *subsys[CGROUP_SUBSYS_COUNT];</br>
+   struct cgroup_subsys_state</br> * subsys[CGROUP_SUBSYS_COUNT];</br>
 
-这里插一句有关rcu的知识：
->>
-当所有的CPU都通过静止状态之后，call_rcu()接受rcu_head描述符（通常嵌在要被释放的数据结构中）的地址和将要调用的回调函数的地址(*func)作为参数。一旦回调函数被执行，它通常释放数据结构的旧副本。
+这里插一句有关rcu的知识：</br>
+
+当所有的CPU都通过静止状态之后，call_rcu()接受rcu_head描述符（通常嵌在要被释放的数据结构中）的地址和将要调用的回调函数的地址(* func)作为参数。一旦回调函数被执行，它通常释放数据结构的旧副本。
 struct rcu_head {
-    struct rcu_head *next;
-    void (*func)(struct rcu_head *head);
+    struct rcu_head * next;
+    void (* func)(struct rcu_head * head);
 };
->>
+
 函数call_rcu()把回调函数和其参数的地址存放在rcu_head描述符中，然后把描述符通过next字段插入回调函数的每CPU（per-CPU）链表中。内核每经过一个时钟滴答就周期性地检查本地CPU是否经过了一个静止状态，即上述三种情况。如果所有CPU都经过了静止状态，本地tasklet的描述符存放在每CPU变量rcu_tasklet中就执行每CPU链表中的所有回调函数，释放数据结构的旧副本。
->>
+
+```
+struct callback_head {
+    struct callback_head *next;
+    void (*func)(struct callback_head *head);
+} __attribute__((aligned(sizeof(void *))));
+#define rcu_head callback_head
+
+```
+
 
 **cgroup_subsys_state**</br>
-
 **cgroup_subsys**</br>
+这个结构最重要的就是存储的进程与特定子系统相关的信息。通过它，可以将task_struct和cgroup连接起来了：**task_struct->css_set->cgroup_subsys_state->cgroup**</br>
+
+```
+struct cgroup_subsys_state {
+    // 对应的cgroup
+    struct cgroup *cgroup;
+
+    // 子系统
+    struct cgroup_subsys *ss;
+
+    // 带cpu信息的引用计数（不大理解）
+    struct percpu_ref refcnt;
+
+    // 父css
+    struct cgroup_subsys_state *parent;
+
+    // 兄弟和孩子链表串
+    struct list_head sibling;
+    struct list_head children;
+
+    // css的唯一id
+    int id;
+
+     // 可设置的flag有：CSS_NO_REF/CSS_ONLINE/CSS_RELEASED/CSS_VISIBLE
+    unsigned int flags;
+
+    // 为了保证遍历的顺序性，设置遍历按照这个字段的升序走
+    u64 serial_nr;
+
+    // 计数，计算本身css和子css的活跃数，当这个数大于1，说明还有有效子css
+    atomic_t online_cnt;
+
+    // TODO: 带cpu信息的引用计数使用的rcu锁（不大理解）
+    struct rcu_head rcu_head;
+    struct work_struct destroy_work;
+};
+
+```
+**NOTE:**</br>
+为什么需要task_struct->css_set->cgroup_subsys_state.</br>
+就是为了表达css_set的task组对应的资源，而资源需要通过cgroup虚拟节点来表达。</br>
+
+**NOTE:**</br>
+这里再强调一下重要的两颗树：</br>
+struct list_head sibling，children; ===> 用来表示对某一种资源的分配形式，比如某个节点是20%，另一个节点是30%</br>
+
+而cgroup中的struct cgroup_root；====> 用来表达对一族task所拥有一个或某几个资源的分配情况</br>
+
+而css_set中的 struct list_head tasks;====>用来表达一组task所应对的cgroup虚拟节点，这个节点中拥有一个或几个资源，同时不同的cgroup节点表达了，这组task所拥有的所有的资源。</br>
+
+
+cgroup_subsys结构体在include/linux/cgroup-defs.h里面</br>
+```
+struct cgroup_subsys {
+     // 下面的是函数指针，定义了子系统对css_set结构的系列操作
+    struct cgroup_subsys_state *(*css_alloc)(struct cgroup_subsys_state *parent_css);
+    int (*css_online)(struct cgroup_subsys_state *css);
+    void (*css_offline)(struct cgroup_subsys_state *css);
+    void (*css_released)(struct cgroup_subsys_state *css);
+    void (*css_free)(struct cgroup_subsys_state *css);
+    void (*css_reset)(struct cgroup_subsys_state *css);
+
+     // 这些函数指针表示了对子系统对进程task的一系列操作
+    int (*can_attach)(struct cgroup_taskset *tset);
+    void (*cancel_attach)(struct cgroup_taskset *tset);
+    void (*attach)(struct cgroup_taskset *tset);
+    void (*post_attach)(void);
+    int (*can_fork)(struct task_struct *task);
+    void (*cancel_fork)(struct task_struct *task);
+    void (*fork)(struct task_struct *task);
+    void (*exit)(struct task_struct *task);
+    void (*free)(struct task_struct *task);
+
+    void (*bind)(struct cgroup_subsys_state *root_css);
+
+     // 是否在前期初始化了
+    bool early_init:1;
+
+     // 如果设置了true，那么在cgroup.controllers和cgroup.subtree_control就不会显示, TODO:
+    bool implicit_on_dfl:1;
+
+     // 如果设置为false，则子cgroup会继承父cgroup的子系统资源，否则不继承或者只继承一半
+     // 但是现在，我们规定，不允许一个cgroup有不可继承子系统仍然可以衍生出cgroup。如果做类似操作，我们会根据
+     // warned_broken_hierarch出现错误提示。
+    bool broken_hierarchy:1;
+    bool warned_broken_hierarchy:1;
+
+    int id;
+    const char *name;
+
+     // 如果子cgroup的结构继承子系统的时候没有设置name，就会沿用父系统的子系统名字，所以这里存的就是父cgroup的子系统名字
+    const char *legacy_name;
+
+    struct cgroup_root *root;  // 这个就是子系统指向的层级中的root的cgroup
+
+    struct idr css_idr; // 对应的css的idr
+
+     // 对应的文件系统相关信息
+    struct list_head cfts;
+    struct cftype *dfl_cftypes;    /* 默认的文件系统 */
+    struct cftype *legacy_cftypes;    /* 继承的文件系统 */
+
+     // 有的子系统是依赖其他子系统的，这里是一个掩码来表示这个子系统依赖哪些子系统
+    unsigned int depends_on;
+};
+
+```
+这里的结构体再查看时，一定要对照的本文第一个图，可以帮助理清所有的关系。</br>
+
+**Key Point**:</br>
+struct cgroup_root * root;  // 这个就是子系统指向的层级中的root的cgroup</br>
+
+这个root是指向本层级中的root ====> 这个是到目前为止我的理解，还需要进一步查看代码进行验证。</br>
+
+**Key Point**:</br>
+这里特别说一下cftype。它是cgroup_filesystem_type的缩写。这个要从我们的linux虚拟文件系统说起（VFS）。VFS封装了标准文件的所有系统调用。那么我们使用cgroup，也抽象出了一个文件系统，自然也需要实现这个VFS。实现这个VFS就是使用这个cftype结构。
+
+这里说一下idr。这个是linux的整数id管理机制。你可以把它看成一个map，这个map是把id和制定指针关联在一起的机制。它的原理是使用基数树。一个结构存储了一个idr，就能很方便根据id找出这个id对应的结构的地址了。http://blog.csdn.net/dlutbrucezhang/article/details/10103371 </br>
+
+**Q:**</br>
+什么是基数树？===> 这个问题问baogen吧，他研究过~~^_ ^ </br>
+
 
 **cgroup**</br>
+cgroup结构也在相同文件，但是**cgroup_root**和**子节点cgroup**是使用两个不同结构表示的。</br>
+```
+struct cgroup {
+    // cgroup所在css
+    struct cgroup_subsys_state self;
+
+    unsigned long flags;
+
+    int id;
+
+    // 这个cgroup所在层级中，当前cgroup的深度
+    int level;
+
+    // 每当有个非空的css_set和这个cgroup关联的时候，就增加计数1
+    int populated_cnt;
+
+    struct kernfs_node *kn;        /* cgroup kernfs entry */
+    struct cgroup_file procs_file;    /* handle for "cgroup.procs" */
+    struct cgroup_file events_file;    /* handle for "cgroup.events" */
+
+    // TODO: 不理解
+    u16 subtree_control;
+    u16 subtree_ss_mask;
+    u16 old_subtree_control;
+    u16 old_subtree_ss_mask;
+
+    // 一个cgroup属于多个css，这里就是保存了cgroup和css直接多对多关系的另一半
+    struct cgroup_subsys_state __rcu *subsys[CGROUP_SUBSYS_COUNT];
+
+     // 根cgroup
+    struct cgroup_root *root;
+
+    // 相同css_set的cgroup链表
+    struct list_head cset_links;
+
+    // 这个cgroup使用的所有子系统的每个链表
+    struct list_head e_csets[CGROUP_SUBSYS_COUNT];
+
+    // TODO: 不理解
+    struct list_head pidlists;
+    struct mutex pidlist_mutex;
+
+    // 用来保存下线task
+    wait_queue_head_t offline_waitq;
+
+    // TODO: 用来保存释放任务？(不理解)
+    struct work_struct release_agent_work;
+
+    // 保存每个level的祖先
+    int ancestor_ids[];
+};
+
+```
+这里看到一个新的结构，wait_queue_head_t，这个结构是用来将一个资源挂在等待队列中，具体参考：http://www.cnblogs.com/lubiao/p/4858086.html
+
+还有一个结构是**cgroup_root**</br>
+```
+struct cgroup_root {
+     // TODO: 不清楚
+    struct kernfs_root *kf_root;
+
+    // 子系统掩码
+    unsigned int subsys_mask;
+
+    // 层级的id
+    int hierarchy_id;
+
+    // 根部的cgroup，这里面就有下级cgroup
+    struct cgroup cgrp;
+
+    // 相等于cgrp->ancester_ids[0]
+    int cgrp_ancestor_id_storage;
+
+    // 这个root层级下的cgroup数，初始化的时候为1
+    atomic_t nr_cgrps;
+
+    // 串起所有的cgroup_root
+    struct list_head root_list;
+
+    unsigned int flags;
+
+    // TODO: 不清楚
+    struct idr cgroup_idr;
+
+    // TODO: 不清楚
+    char release_agent_path[PATH_MAX];
+
+    // 这个层级的名称，有可能为空
+    char name[MAX_CGROUP_ROOT_NAMELEN];
+};
+
+```
+-------
