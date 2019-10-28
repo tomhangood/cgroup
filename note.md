@@ -218,3 +218,35 @@ cgset -r cpuset.cpus=0-1 cpu,memory:/
   #### subsystem 配置参数用法</br>
 这部分没什么可说的，直接看下面的博客吧，都是些硬指标：</br>
 https://www.infoq.cn/article/docker-kernel-knowledge-cgroups-resource-isolation
+
+--------
+### 框架分析
+
+**ok，再温习下概念**</br>
+我们把每种**资源**叫做**子系统**，比如CPU子系统，内存子系统。为什么叫做子系统呢，因为它是从整个操作系统的资源衍生出来的。然后我们创建**一种虚拟的节点**，叫做**cgroup**，然后这个虚拟节点可以扩展，以**树形**的结构，有root节点，和子节点。这个父节点和各个子节点就形成了**层级**（hierarchiy）。每个层级都可以附带**继承**一个或者多个**子系统**，就意味着，**我们把资源按照分割到多个层级系统中，层级系统中的每个节点对这个资源的占比各有不同**。</br>
+
+**css_set**</br>
+下面我们想法子把进程分组，**进程分组的逻辑** 叫做css_set。这里的css是cgroup_subsys_state的缩写。所以**css_set和进程的关系是一对多**的关系。另外，在cgroup眼中，进程请不要叫做进程，叫做task。这个可能是为了和内核中进程的名词区分开吧。
+
+**css_set & cgroup & subsystem 关系**</br>
+进程分组css_set，不同层级中的节点cgroup也都有了。那么，就要把节点cgroup和层级进行关联，和数据库中关系表一样。这个事一个多对多的关系。为什么呢？首先，**一个节点可以隶属于多个css_set，这就代表着这批css_set中的进程都拥有这个cgroup所代表的资源**。其次，**一个css_set需要多个cgroup。因为一个层级的cgroup只代表一种或者几种资源，而一般进程是需要多种资源的集合体**。</br>
+
+#### 重要结构体
+
+**task_struct**</br>
+```
+#ifdef CONFIG_CGROUPS
+     // 设置这个进程属于哪个css_set
+    struct css_set __rcu *cgroups;
+     // cg_list是用于将所有同属于一个css_set的task连成一起
+    struct list_head cg_list;
+#endif
+
+```
+**css_set**</br>
+
+**cgroup_subsys_state**</br>
+
+**cgroup_subsys**</br>
+
+**cgroup**</br>
