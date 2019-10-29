@@ -1,9 +1,12 @@
-#### Basic concept: ####
+### Cgroup基本概念 ###
 
 A **cgroup** associates a set of tasks with a set of parameters for one
 or more subsystems.
 
- 通俗的来说，cgroups可以限制、记录、隔离进程组所使用的物理资源（包括：CPU、memory、IO等），为容器实现虚拟化提供了基本保证，是构建Docker等一系列虚拟化管理工具的基石。
+ Cgroups 是 control groups 的缩写,通俗的来说，cgroups可以限制、记录、隔离进程组所使用的物理资源（包括：CPU、memory、IO等），为容器实现虚拟化提供了基本保证，是构建Docker等一系列虚拟化管理工具的基石。最初由 google 的工程师提出,后来被整合进 Linux 内核。Cgroups 也是 LXC 为实现虚拟化所使用的资源管理手段,可以说没有 cgroups 就没有 LXC。
+
+ Cgroups 最初的目标是为资源管理提供的一个**统一的框架**,既整合现有的 cpuset 等子系统,
+ 也为未来开发新的子系统提供接口。
 
  对开发者来说，cgroups有如下四个有趣的特点：
 1. cgroups的API以一个**伪文件系统**的方式实现，即用户可以通过文件操作实现 cgroups的组织管理
@@ -11,7 +14,7 @@ or more subsystems.
 3. 所有资源管理的功能都以“**subsystem（子系统）**”的方式实现，接口统一。
 4. 子进程创建之初与其父进程处于**同一个cgroups的控制组**。
 
-cgroups的作用
+#### cgroups的作用 ####
 
  实现cgroups的主要目的是为不同用户层面的资源管理，提供一个统一化的接口。从单个进程的资源控制到操作系统层面的虚拟化。Cgroups提供了以下四大功能</br>
 

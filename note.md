@@ -1,4 +1,12 @@
-### 用于记录目前看到的Key Point!
+### Cgroup基本概念
+
+A **cgroup** associates a set of tasks with a set of parameters for one
+or more subsystems.
+
+ Cgroups 是 control groups 的缩写,通俗的来说，cgroups可以限制、记录、隔离进程组所使用的物理资源（包括：CPU、memory、IO等），为容器实现虚拟化提供了基本保证，是构建Docker等一系列虚拟化管理工具的基石。最初由 google 的工程师提出,后来被整合进 Linux 内核。Cgroups 也是 LXC 为实现虚拟化所使用的资源管理手段,可以说没有 cgroups 就没有 LXC。
+
+ Cgroups 最初的目标是为资源管理提供的一个**统一的框架**,既整合现有的 cpuset 等子系统,
+也为未来开发新的子系统提供接口。
 
 对开发者来说，cgroups 有如下四个有趣的特点：
 
@@ -14,7 +22,41 @@
 
 subsystem: 它类似于我们在netfilter中的过滤hook.比如上面的CPU占用率就是一个subsystem.简而言之.subsystem就是cgroup中可添加删除的模块.在cgroup架构的封装下为cgroup提供多种行为控制.subsystem在下文中简写成subsys.</br>
 
-##### cgroups 的作用
+**"**A **subsystem** is a module that makes use of the task grouping
+facilities provided by cgroups to treat groups of tasks in
+particular ways.**"** A subsystem is typically a "resource controller" that
+schedules a resource or applies per-cgroup limits, but it may be
+anything that wants to act on a group of processes, e.g. a
+virtualization subsystem.
+
+>>
+#### cgroups子系统 ####
+>
+1. cpu 子系统，主要限制进程的 cpu 使用率.
+2. cpuacct 子系统，可以统计 cgroups 中的进程的 cpu 使用报告。
+3. cpuset 子系统，可以为 cgroups 中的进程分配单独的 cpu 节点或者内存节点。
+4. memory 子系统，可以限制进程的 memory 使用量。
+5. blkio 子系统，可以限制进程的块设备 io。
+6. devices 子系统，可以控制进程能够访问某些设备。
+7. net_cls 子系统，可以标记 cgroups 中进程的网络数据包，然后可以使用 tc 模块
+8. （traffic control）对数据包进行控制。
+9. net_prio — 这个子系统用来设计网络流量的优先级
+10. freezer 子系统，可以挂起或者恢复 cgroups 中的进程。
+11. ns 子系统，可以使不同 cgroups 下面的进程使用不同的 namespace
+12. hugetlb — 这个子系统主要针对于HugeTLB系统进行限制，这是一个大页文件系统。
+
+A **hierarchy** is a set of cgroups arranged in a tree, such that
+every task in the system is in exactly one of the cgroups in the
+hierarchy, and a set of subsystems; each subsystem has system-specific
+state attached to each cgroup in the hierarchy.  Each hierarchy has
+an instance of the cgroup virtual filesystem associated with it.
+
+
+按照资源的划分，系统被划分成了不同的子系统(subsystem)，正如我们上面列出的cpu, cpuset, blkio...每种资源独立构成一个subsystem.
+
+可以将cgroup的架构抽象的理解为多根的树结构，一个hierarchy代表一棵树，树上绑定一个或多个subsystem.而树的叶子则是cgroup,一个cgroup具体的限制了某种资源。一个或多个cgroup组成一个css_set。简单来讲，就是一个资源限制集合(css_set)对一种subsystem(cpu，devices)的限制条件只能有一个，这是显然的吧...最终的task(进程)同css_set关联，从而达到限制资源的目的。具体cgroup和css_set 关联的方式, **see the second chart**
+
+### cgroups 的作用
 
 1. 资源限制（Resource Limitation）：cgroups 可以对进程组使用的资源总额进行限制。如设定应用运行时使用内存的上限，一旦超过这个配额就发出 OOM（Out of Memory）。
 2. 优先级分配（Prioritization）：通过分配的 CPU 时间片数量及硬盘 IO 带宽大小，实际上就相当于控制了进程运行的优先级。
@@ -22,7 +64,7 @@ subsystem: 它类似于我们在netfilter中的过滤hook.比如上面的CPU占�
 4. 进程控制（Control）：cgroups 可以对进程组执行挂起、恢复等操作。
 
 **NOTE:** 以上四条非常非常重要，洗完可以对照着下表去体会:</br>
-![Alt text](/pic/cgroup.png)</br>
+![Alt text](/pic/1.png)</br>
 
 ##### 术语表
 
@@ -34,6 +76,9 @@ subsystem: 它类似于我们在netfilter中的过滤hook.比如上面的CPU占�
 Why?</br>
 Because:如果只有一个 hierarchy，那么所有的 task 都要受到绑定其上的 subsystem 的限制，会给那些不需要这些限制的 task 造成麻烦。</br>
 
+创建了 cgroups 层级结构中的节点（cgroup 结构体）之后，可以把进程加入到某一个节点的控制任务列表中，一个节点的控制列表中的所有进程都会受到当前节点的资源限制。同时某一个进程也可以被加入到不同的 cgroups 层级结构的节点中，因为不同的 cgroups 层级结构可以负责不同的系统资源。所以说进程和 cgroup 结构体是一个多对多的关系。
+
+![Alt text](/pic/cgroup.png)</br>
 
 ##### 重要规则：
 **规则 1**： 同一个 hierarchy 可以附加一个或多个 subsystem。如下图 1，cpu 和 memory 的 subsystem 附加到了一个 hierarchy。</br>
@@ -56,8 +101,69 @@ Because:如果只有一个 hierarchy，那么所有的 task 都要受到绑定�
 
 **NOTE:** subsystem 实际上就是 cgroups 的资源控制系统，每种 subsystem 独立地控制一种资源</br>
 
+### 实践操作
+查看cgroup挂载点（centos7.5）:
 
-#### cgroups 实现方式及工作原理简介
+```
+
+1 [root@k8s-master ~]# mount -t cgroup
+2 cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,release_agent=/usr/lib/systemd/systemd-cgroups-agent,name=systemd)
+3 cgroup on /sys/fs/cgroup/pids type cgroup (rw,nosuid,nodev,noexec,relatime,pids)
+4 cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
+5 cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
+6 cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpuacct,cpu)
+7 cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
+8 cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
+9 cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
+10 cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
+11 cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
+12 cgroup on /sys/fs/cgroup/net_cls,net_prio type cgroup (rw,nosuid,nodev,noexec,relatime,net_prio,net_cls)
+
+
+```
+
+#### 创建隔离组 ####
+
+```
+[root@k8s-master ~]# cd /sys/fs/cgroup/cpu
+
+[root@k8s-master cpu]# mkdir cpu_test
+
+```
+
+#### 目录创建完成会自动生成以下文件 ####
+
+[root@k8s-master cpu]# ls cpu_test/
+
+![Alt text](/pic/lz1.png)
+
+写个死循环测试程序增加cpu使用率
+
+```
+
+
+  1 int main(void)
+  2 {
+  3     int i = 0;
+  4     for(;;) i++;
+  5     return 0;
+  6 }
+```
+启动程序后cpu使用100%
+
+![Alt text](/pic/lz2.png)
+
+默认-1不限制，现在改成20000，可以理解使用率限制在20%
+
+[root@k8s-master cpu]# echo 20000 > /sys/fs/cgroup/cpu/cpu_test/cpu.cfs_quota_us
+
+找到进程号增加到cpu tasks里面，在看top  cpu使用率很快就下来
+
+[root@k8s-master ~]# echo 23732 >> /sys/fs/cgroup/cpu/cpu_test/tasks
+
+![Alt text](/pic/lz3.png)
+
+### cgroups 实现方式及工作原理简介
 
 ##### cgroups 实现结构讲解
 
@@ -154,6 +260,7 @@ release_agent：指定 release agent 执行脚本的文件路径（该文件在�
 4. 查看单个子系统（如 memory）挂载位置：lssubsys –m memory</br>
 **创建 hierarchy 层级并挂载子系统:**</br>
 使用 cgroup 的最佳方式是：为想要管理的每个或每组资源创建单独的 cgroup 层级结构。而创建 hierarchy 并不神秘，实际上就是**做一个标记**，通过挂载一个 tmpfs{![基于内存的临时文件系统，详见：http://en.wikipedia.org/wiki/Tmpfs]}文件系统，并给一个好的名字就可以了，系统默认挂载的 cgroup 就会进行如下操作。</br>
+
 ```
 mount -t tmpfs cgroups /sys/fs/cgroup
 
@@ -222,7 +329,125 @@ cgset -r cpuset.cpus=0-1 cpu,memory:/
 https://www.infoq.cn/article/docker-kernel-knowledge-cgroups-resource-isolation
 
 --------
-### 框架分析
+### cgroup框架分析
+
+在讲 cgroup 文件系统的实现之前,必须简单的介绍一下 Linux VFS。</br>
+VFS 是所谓的虚拟文件系统转换,是一个内核软件层,用来处理与 Unix 标准文件系统的所有系
+统调用。VFS 对用户提供统一的读写等文件操作调用接口,当用户调用读写等函数时,内核则调
+用特定的文件系统实现。具体而言,文件在内核内存中是一个 file 数据结构来表示的。这个数
+据结构包含一个 f_op 的字段,该字段中包含了一组指向特定文件系统实现的函数指针。当用户
+执行 read()操作时,内核调用 sys_read(),然后 sys_read()查找到指向该文件属于的文件
+系统的读函数指针,并调用它,即 file->f_op->read().</br>
+VFS 其实是面向对象的,在这里,对象是一个软件结构,既定义数据也定义了之上的操作。处于
+效率,Linux 并没有采用 C++之类的面向对象的语言,而是采用了 C 的结构体,然后在结构体里
+面定义了一系列函数指针,这些函数指针对应于对象的方法。</br>
+
+VFS 文件系统定义了以下对象模型:</br>
+超级块对象(superblock object)</br>
+存放已安装文件系统的有关信息。</br>
+索引节点对象(inode object)</br>
+存放关于具体文件的一般信息。</br>
+文件对象(file object)</br>
+存放打开文件与进程之间的交互信息</br>
+目录项对象(dentry object)</br>
+存放目录项与对应文件进行链接的有关信息。</br>
+
+基于 VFS 实现的文件系统,都必须实现定义这些对象,并实现这些对象中定义的函数指针。</br>
+cgroup 文件系统也不例外,下面我们来看 cgroups 中这些对象的定义。</br>
+
+cgroup 文件系统的定义:
+```
+static struct file_system_type cgroup_fs_type = {
+.name = "cgroup",
+.get_sb = cgroup_get_sb,
+.kill_sb = cgroup_kill_sb,
+};
+
+```
+这里有定义了两个函数指针,定义了一个文件系统必须实现了的两个操作
+get_sb,kill_sb,即获得超级块和释放超级块。这两个操作会在使用 mount 系统调用挂载
+cgroup 文件系统时使用。
+cgroup 超级块的定义:
+
+```
+static const struct super_operations cgroup_ops = {
+.statfs = simple_statfs,
+.drop_inode = generic_delete_inode,
+.show_options = cgroup_show_options,
+.remount_fs = cgroup_remount,
+};
+
+```
+Cgroup 索引块定义:
+```
+static const struct inode_operations cgroup_dir_inode_operations = {
+.lookup = simple_lookup,
+.mkdir = cgroup_mkdir,
+.rmdir = cgroup_rmdir,
+.rename = cgroup_rename,
+};
+
+```
+在 cgroup 文件系统中,使用 mkdir 创建 cgroup 或者用 rmdir 删除 cgroup 时,就会调用
+相应的函数指针指向的函数。比如:使用 mkdir 创建 cgroup 时,会调用 cgroup_mkdir,
+然后在 cgroup_mkdir 中再调用具体实现的 cgroup_create 函数。
+Cgroup 文件操作定义:
+
+```
+static const struct file_operations cgroup_file_operations = {
+.read = cgroup_file_read,
+.write = cgroup_file_write,
+.llseek = generic_file_llseek,
+.open = cgroup_file_open,
+.release = cgroup_file_release,
+};
+```
+
+在 cgroup 文件系统中,对目录下的控制文件进行操作时,会调用该结构体中指针指向的函
+数。比如:对文件进行读操作时,会调用 cgroup_file_read,在 cgroup_file_read 中,
+会根据需要调用该文件对应的 cftype 结构体定义的对应读函数。</br>
+我们再来看 cgroup 文件系统中的 cgroups 控制文件。 Cgroups 定义一个 cftype 的结
+构体来管理控制文件。下面我们来看 cftype 的定义:</br>
+
+```
+struct cftype {
+char name[MAX_CFTYPE_NAME];
+int private; /*
+mode_t mode;
+size_t max_write_len;
+int (*open)(struct inode *inode, struct file *file);
+ssize_t (*read)(struct cgroup *cgrp, struct cftype *cft,
+struct file *file,
+char __user *buf, size_t nbytes, loff_t *ppos);
+u64 (*read_u64)(struct cgroup *cgrp, struct cftype *cft);
+s64 (*read_s64)(struct cgroup *cgrp, struct cftype *cft);
+int (*read_map)(struct cgroup *cont, struct cftype *cft,
+struct cgroup_map_cb *cb);
+int (*read_seq_string)(struct cgroup *cont, struct cftype *cft,
+struct seq_file *m);
+ssize_t (*write)(struct cgroup *cgrp, struct cftype *cft,
+struct file *file,
+const char __user *buf, size_t nbytes, loff_t *ppos);
+int (*write_u64)(struct cgroup *cgrp, struct cftype *cft, u64 val);
+int (*write_s64)(struct cgroup *cgrp, struct cftype *cft, s64 val);
+int (*write_string)(struct cgroup *cgrp, struct cftype *cft,
+const char *buffer);
+int (*trigger)(struct cgroup *cgrp, unsigned int event);
+int (*release)(struct inode *inode, struct file *file);
+int (*register_event)(struct cgroup *cgrp, struct cftype *cft,
+struct eventfd_ctx *eventfd, const char *args); /*
+void (*unregister_event)(struct cgroup *cgrp, struct cftype *cft,
+struct eventfd_ctx *eventfd);
+};
+
+```
+cftype 中除了定义文件的名字和相关权限标记外,主要是定义了对文件进行操作的函数指
+针。不同的文件可以有不同的操作,对文件进行操作时,相关函数指针指向的函数会被调用。</br>
+综合上面的分析,cgroups 通过实现 cgroup 文件系统来为用户提供管理 cgroup 的工
+具,而 cgroup 文件系统是基于 Linux VFS 实现的。相应地,cgroups 为控制文件定义了
+相应的数据结构 cftype,对其操作由 cgroup 文件系统定义的通过操作捕获,再调用 cftype
+定义的具体实现。
+
 
 **ok，再温习下概念**</br>
 我们把每种**资源**叫做**子系统**，比如CPU子系统，内存子系统。为什么叫做子系统呢，因为它是从整个操作系统的资源衍生出来的。然后我们创建**一种虚拟的节点**，叫做**cgroup**，然后这个虚拟节点可以扩展，以**树形**的结构，有root节点，和子节点。这个父节点和各个子节点就形成了**层级**（hierarchiy）。每个层级都可以附带**继承**一个或者多个**子系统**，就意味着，**我们把资源按照分割到多个层级系统中，层级系统中的每个节点对这个资源的占比各有不同**。</br>
@@ -373,9 +598,11 @@ struct list_head sibling，children; ===> 用来表示对某一种资源的分�
 
 
 cgroup_subsys结构体在include/linux/cgroup-defs.h里面</br>
+
 ```
-struct cgroup_subsys {
-     // 下面的是函数指针，定义了子系统对css_set结构的系列操作
+struct cgroup_subsys{  
+
+     /* 下面的是函数指针，定义了子系统对css_set结构的系列操作 */
     struct cgroup_subsys_state *(*css_alloc)(struct cgroup_subsys_state *parent_css);
     int (*css_online)(struct cgroup_subsys_state *css);
     void (*css_offline)(struct cgroup_subsys_state *css);
