@@ -448,6 +448,36 @@ cftype 中除了定义文件的名字和相关权限标记外,主要是定义了
 相应的数据结构 cftype,对其操作由 cgroup 文件系统定义的通过操作捕获,再调用 cftype
 定义的具体实现。
 
+#### mount介绍
+
+更详细信息参考：
+linux内核mount系统调用源码分析http://blog.csdn.net/wugj03/article/details/41958029/ </br>
+linux系统调用mount全过程分析http://blog.csdn.net/skyflying2012/article/details/9748133 </br>
+在系统启动时，mount需要的CGroup子系统：</br>
+
+```
+mount cgroup none /dev/cpuctl cpu
+```
+在用户空间将mount命令转换成系统调用sys_mount：</br>
+
+```
+asmlinkage long sys_mount(char __user *dev_name, char __user *dir_name,char __user *type, unsigned long flags,void __user *data);
+
+```
+
+从sys_mount到具体文件系统的.mount调用流程如下：</br>
+
+```
+sys_mount(fs/namespace.c) 
+  -->do_mount(kernel_dev, dir_name, kernel_type, flags, (void *)data_pate)   
+    -->do_new_mount (&path, type_page, flags, mnt_flags,dev_name, data_page)     
+      --> vfs_kern_mount(type, flags, name, data)       
+        --> mount_fs(type, flags, name, data)         
+          --> type->mount(type, flags, name, data)           
+            --> cgroup_mount(fs_type, flags, unused_dev_name, data)
+```
+
+#### cgroup重要结构体
 
 **ok，再温习下概念**</br>
 我们把每种**资源**叫做**子系统**，比如CPU子系统，内存子系统。为什么叫做子系统呢，因为它是从整个操作系统的资源衍生出来的。然后我们创建**一种虚拟的节点**，叫做**cgroup**，然后这个虚拟节点可以扩展，以**树形**的结构，有root节点，和子节点。这个父节点和各个子节点就形成了**层级**（hierarchiy）。每个层级都可以附带**继承**一个或者多个**子系统**，就意味着，**我们把资源按照分割到多个层级系统中，层级系统中的每个节点对这个资源的占比各有不同**。</br>
@@ -796,6 +826,14 @@ struct cgroup_root {
 ### cgroup的函数
 #### cgroup初始化
 
+##### 总览
+
+CGoup核心主要创建一系列sysfs文件，用户空间可以通过这些节点控制CGroup各子系统行为。各子系统模块根据参数，在执行过程中或调度进程道不同CPU上，或控制CPU占用时间，或控制IO带宽等等。另，在每个进程的proc文件系统中都有一个cgroup，显示该进程对应的CGroup各子系统信息。
+
+如果CGroup需要early_init，start_kernel调用cgroup_init_early在系统启动时进行CGroup初始化。
+
+CGroup的起点是start_kernel->cgroup_init，进入CGroup的初始化，主要注册cgroup文件系统和创建、proc文件，初始化不需要early_init的子系统。
+
 Cgroup的初始化包括两个部份.即cgroup_init_early()和cgroup_init().分别表示在系统初始时的初始化和系统初始化完成时的初始化.分为这两个部份是因为有些subsys是要在系统刚启动的时候就必须要初始化的.
 
 **cgroup_init_early**</br>
@@ -1050,3 +1088,7 @@ int __init cgroup_init(void)
 --------
 
 ### 父子进程之间的cgroup关联:
+
+--------
+
+### 各个子系统:
