@@ -224,6 +224,31 @@ static inline struct freezer *css_freezer(struct cgroup_subsys_state *css)
 }
 
 ```
+or memory:</br>
+```
+struct mem_cgroup {
+  struct cgroup_subsys_state css;
+  struct res_counter res;
+  struct res_counter memsw;
+  struct mem_cgroup_lru_info info;
+  spinlock_t reclaim_param_lock;
+  int prev_priority;
+  int last_scanned_child;
+  bool use_hierarchy;
+  atomic_t oom_lock;
+  atomic_t refcnt;
+  unsigned int swappiness;
+  int oom_kill_disable;
+  bool memsw_is_minimum;
+  struct mutex thresholds_lock;
+  struct mem_cgroup_thresholds thresholds;
+  struct mem_cgroup_thresholds memsw_thresholds;
+  struct list_head oom_notify;
+  unsigned long move_charge_at_immigrate;
+  struct mem_cgroup_stat_cpu *stat;
+};
+
+```
 
 #### 基于 cgroups 实现结构的用户层体现
 不多说了，下面这篇博客写的太棒了，直接copy过来：</br>
@@ -1092,3 +1117,5 @@ int __init cgroup_init(void)
 --------
 
 ### 各个子系统:
+
+Please refer to the cgroups introduce.pdf
