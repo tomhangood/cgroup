@@ -165,7 +165,7 @@ Because:如果只有一个 hierarchy，那么所有的 task 都要受到绑定�
 
 ### cgroups 实现方式及工作原理简介
 
-##### cgroups 实现结构讲解
+#### cgroups 实现结构讲解
 
 ![Alt text](/pic/cgroup1.png)</br>
 **图 5 cgroups 相关结构体一览**</br>
@@ -1109,10 +1109,6 @@ int __init cgroup_init(void)
 #### 阶段性总结：
 
 经过cgroup的两个阶段的初始化, init_css_set, rootnode,subsys已经都初始化完成.表面上看起来它们很复杂,其实,它们只是表示cgroup的初始化状态而已.例如,如果subsys->root等于rootnode,那表示subsys没有被其它的cgroup所使用.</br>
-
---------
-
-### 父子进程之间的cgroup关联:
 
 --------
 
