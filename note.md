@@ -1506,11 +1506,12 @@ I'm not sure.</br>
 
 1. page fault发生时，有两种情况内核需要给进程分配新的页框。一种是进程请求调页 (demand paging)，另一种是copy on write。
 2. 内核在handle_pte_fault中进行处理时，还有一种情况是pte存在且页又没有映射文件。
-3. 当 内 核 将 page 加 入 到 page cache 中 时 ， 也 需 要 进 行 charge 操 作。
-4. 最后mem_cgroup_prepare_migration是用于处理内存迁移中的charge操作。
+3. 当执行swapoff系统调用(关掉swap空间)，内核也会执行 页面换入操作，因此mem_cgroup_try_charge_swapin也被植入到了相应的函数中.
+4. 当 内 核 将 page 加 入 到 page cache 中 时 ， 也 需 要 进 行 charge 操 作。
+5. 最后mem_cgroup_prepare_migration是用于处理内存迁移中的charge操作。
 
 
-Regarding **NO.1**, 下面总结的非常好：</br>
+Regarding **NO.1~3**, 下面总结的非常好：</br>
 内核在handle_pte_fault中进行处理。 其 中 ， do_linear_fault 处 理 pte 不 存 在 且 页 面 线 性 映 射 了 文 件 的 情 况 ， do_anonymous_page处理pte不存在且页面没有映射文件的情况，do_nonlinear_fault 处理pte存在且页面非线性映射文件的情况，do_wp_page则处理copy on write的情况。 其中do_linear_fault和do_nonlinear_fault都会调用__do_fault来处理。Memory子系 统则__do_fault、do_anonymous_page、do_wp_page植入mem_cgroup_newpage_charge 来进行charge操作。</br>
 
 实际上就是将下面函数进行的总结：</br>
@@ -1540,15 +1541,15 @@ static int handle_pte_fault(struct mm_struct *mm,
         if (pte_none(entry)) {
             if (vma->vm_ops)
                 return do_linear_fault(mm, vma, address,
-                        pte, pmd, flags, entry);
+                        pte, pmd, flags, entry); //处 理 pte 不 存 在 且 页 面 线 性 映 射 了 文 件 的 情 况
             return do_anonymous_page(mm, vma, address,
-                         pte, pmd, flags);
+                         pte, pmd, flags); //处理pte不存在且页面没有映射文件的情况
         }
         if (pte_file(entry))
             return do_nonlinear_fault(mm, vma, address,
-                    pte, pmd, flags, entry);
+                    pte, pmd, flags, entry); //处理pte存在且页面非线性映射文件的情况
         return do_swap_page(mm, vma, address,
-                    pte, pmd, flags, entry);
+                    pte, pmd, flags, entry); //处理pte存在且页又没有映射文件
     }
 
     if (pte_numa(entry))
@@ -1561,7 +1562,7 @@ static int handle_pte_fault(struct mm_struct *mm,
     if (flags & FAULT_FLAG_WRITE) {
         if (!pte_write(entry))
             return do_wp_page(mm, vma, address,
-                    pte, pmd, ptl, entry);
+                    pte, pmd, ptl, entry); //处理copy on write的情况
         entry = pte_mkdirty(entry);
     }
     entry = pte_mkyoung(entry);
@@ -1582,4 +1583,33 @@ unlock:
     return 0;
 }
 
+```
+
+调用关系:</br>
+```
+do_linear_fault
+do_nonlinear_fault
+  -> __do_fault
+    -> mem_cgroup_newpage_charge
+
+do_anonymous_page
+  -> mem_cgroup_newpage_charge
+
+do_wp_page
+  -> mem_cgroup_newpage_charge
+
+do_swap_page
+  -> mem_cgroup_try_charge_swapin //处理页面换入时的charge
+```
+
+Regarding **NO.4**:</br>
+```
+(mm/filemap.c)
+__add_to_page_cache_locked
+  -> mem_cgroup_cache_charge
+
+(mm/shmem.c)
+shmem_unuse
+shmem_getpage_gfp
+  ->mem_cgroup_cache_charge
 ```
