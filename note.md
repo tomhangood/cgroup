@@ -1197,8 +1197,8 @@ Figure 1 shows the important aspects of the controller
 
 ###### Key Function:
 
-**Init Function**\br
-这个函数用于初始化一个 res_counter。\br
+**Init Function**</br>
+这个函数用于初始化一个 res_counter。</br>
 ```
 void res_counter_init(struct res_counter *counter, struct res_counter *parent)
 {
@@ -1212,8 +1212,8 @@ void res_counter_init(struct res_counter *counter, struct res_counter *parent)
 
 ```
 
-**res_counter_charge()**:\br
-当资源将要被分配的 时候，资源就要被记录到相应的res_counter里。这个函数作用就是记录进程组使用的资源。 在这个函数中有:\br
+**res_counter_charge()**:</br>
+当资源将要被分配的 时候，资源就要被记录到相应的res_counter里。这个函数作用就是记录进程组使用的资源。 在这个函数中有:</br>
 
 ```
 for (c = counter; c != limit; c = c->parent) {
@@ -1274,5 +1274,214 @@ static int __res_counter_charge_until(struct res_counter *counter,
 
     return ret;
 }
+
+```
+
+**res_counter_uncharge（）**</br>
+
+```
+u64 res_counter_uncharge(struct res_counter *counter, unsigned long val)
+{
+    return res_counter_uncharge_until(counter, NULL, val);
+}
+
+u64 res_counter_uncharge_until(struct res_counter *counter,
+                  struct res_counter *top,
+                  unsigned long val)
+{
+    unsigned long flags;
+    struct res_counter *c;
+    u64 ret = 0;
+
+    local_irq_save(flags);
+    for (c = counter; c != top; c = c->parent) {
+        u64 r;
+        spin_lock(&c->lock);
+        r = res_counter_uncharge_locked(c, val);
+        if (c == counter)
+            ret = r;
+        spin_unlock(&c->lock);
+    }
+    local_irq_restore(flags);
+    return ret;
+}
+
+```
+**Q:**/br
+1. 为什么对资源的查找都是从下往上查？如意res_counter处于中间会怎么办？
+2. res_counter 和 mem_cgroup 和 page_cgroup 以及 cgroup 之间的关系?
+
+#### Another Key Strucutre:
+
+```
+/*
+ * The memory controller data structure. The memory controller controls both
+ * page cache and RSS per cgroup. We would eventually like to provide
+ * statistics based on the statistics developed by Rik Van Riel for clock-pro,
+ * to help the administrator determine what knobs to tune.
+ *
+ * TODO: Add a water mark for the memory controller. Reclaim will begin when
+ * we hit the water mark. May be even add a low water mark, such that
+ * no reclaim occurs from a cgroup at it's low water mark, this is
+ * a feature that will be implemented much later in the future.
+ */
+struct mem_cgroup {
+    struct cgroup_subsys_state css;
+    /*
+     * the counter to account for memory usage
+     */
+    struct res_counter res;
+
+    /* vmpressure notifications */
+    struct vmpressure vmpressure;
+
+    union {
+      /*
+       * the counter to account for mem+swap usage.
+       */
+      struct res_counter memsw;
+
+      /*
+       * rcu_freeing is used only when freeing struct mem_cgroup,
+       * so put it into a union to avoid wasting more memory.
+       * It must be disjoint from the css field.  It could be
+       * in a union with the res field, but res plays a much
+       * larger part in mem_cgroup life than memsw, and might
+       * be of interest, even at time of free, when debugging.
+       * So share rcu_head with the less interesting memsw.
+       */
+      struct rcu_head rcu_freeing;
+      /*
+       * We also need some space for a worker in deferred freeing.
+       * By the time we call it, rcu_freeing is no longer in use.
+       */
+      struct work_struct work_freeing;
+  };
+
+  /*
+   * the counter to account for kernel memory usage.
+   */
+  struct res_counter kmem;
+  /*
+   * Should the accounting and control be hierarchical, per subtree?
+   */
+  bool use_hierarchy;
+  unsigned long kmem_account_flags; /* See KMEM_ACCOUNTED_*, below */
+
+  bool        oom_lock;
+  atomic_t    under_oom;
+  atomic_t    oom_wakeups;
+
+  atomic_t    refcnt;
+
+  int swappiness;
+  /* OOM-Killer disable */
+  int     oom_kill_disable;
+
+  struct vm_dirty_param dirty_param;
+
+  unsigned int    killmode;
+  unsigned int    killpriority;
+  int             reclaimpriority;
+
+  bool        background_reclaim;
+  bool        dirty_throttle;
+  bool        enable_priority_reclaim;
+
+  /* set when res.limit == memsw.limit */
+  bool        memsw_is_minimum;
+  /* protect arrays of thresholds */
+  struct mutex thresholds_lock;
+
+  /* thresholds for memory usage. RCU-protected */
+  struct mem_cgroup_thresholds thresholds;
+
+  /* thresholds for mem+swap usage. RCU-protected */
+  struct mem_cgroup_thresholds memsw_thresholds;
+
+  /* For oom notifier event fd */
+  struct list_head oom_notify;
+
+  /*
+   * Should we move charges of a task when a task is moved into this
+   * mem_cgroup ? And what type of charges should we move ?
+   */
+  unsigned long   move_charge_at_immigrate;
+
+  atomic_t kswapd_running;
+  wait_queue_head_t memcg_kswapd_end;
+  struct list_head memcg_kswapd_wait_list;
+
+  /*
+   * set > 0 if pages under this cgroup are moving to other cgroup.
+   */
+  atomic_t    moving_account;
+  /* taken only while moving_account > 0 */
+  spinlock_t  move_lock;
+  /*
+   * percpu counter.
+   */
+  struct mem_cgroup_stat_cpu __percpu *stat;
+  /*
+   * used when a cpu is offlined or other synchronizations
+   * See mem_cgroup_read_stat().
+   */
+  struct mem_cgroup_stat_cpu nocpu_base;
+  spinlock_t pcp_counter_lock;
+
+  u64 high_wmark_distance;
+  u64 low_wmark_distance;
+
+  atomic_t    dead_count;
+#if defined(CONFIG_MEMCG_KMEM) && defined(CONFIG_INET)
+  struct tcp_memcontrol tcp_mem;
+#endif
+#if defined(CONFIG_MEMCG_KMEM)
+  /* analogous to slab_common's slab_caches list. per-memcg */
+  struct list_head memcg_slab_caches;
+  /* Not a spinlock, we can take a lot of time walking the list */
+  struct mutex slab_caches_mutex;
+      /* Index in the kmem_cache->memcg_params->memcg_caches array */
+  int kmemcg_id;
+#endif
+
+  int last_scanned_node;
+#if MAX_NUMNODES > 1
+  nodemask_t  scan_nodes;
+  atomic_t    numainfo_events;
+  atomic_t    numainfo_updating;
+#endif
+
+  /*
+   * Per cgroup active and inactive list, similar to the
+   * per zone LRU lists.
+   *
+   * WARNING: This has to be the last element of the struct. Don't
+   * add new fields after this point.
+   */
+  struct mem_cgroup_lru_info info;
+};
+
+```
+
+mem_cgroup中包含了两个res_counter成员，分别用于管理memory资源和memory+swap 资源，如果memsw_is_minimum为true，则res.limit=memsw.limit，即当进程组使用的 内存超过memory的限制时，不能通过swap来缓解. </br>
+use_hierarchy则用来标记资源控制和记录时是否是层次性的。</br> oom_kill_disable则表示是否使用oom-killer。</br>
+oom_notify指向一个oom notifier event fd链表。</br>
+
+##### Plus, one more key structure:
+
+```
+/*
+ * Page Cgroup can be considered as an extended mem_map.
+ * A page_cgroup page is associated with every page descriptor. The
+ * page_cgroup helps us identify information about the cgroup
+ * All page cgroups are allocated at boot or memory hotplug event,
+ * then the page cgroup for pfn always exists.
+ */
+struct page_cgroup {
+    unsigned long flags;
+    struct mem_cgroup *mem_cgroup;
+    unsigned short id;
+};
 
 ```
