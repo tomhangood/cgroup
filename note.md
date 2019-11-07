@@ -1115,3 +1115,164 @@ int __init cgroup_init(void)
 ### 各个子系统:
 
 Please refer to the cgroups introduce.pdf
+
+#### Memory 子系统：
+
+##### Key Structure (3.10.0)
+
+```
+
+/*
+ * The core object. the cgroup that wishes to account for some
+ * resource may include this counter into its structures and use
+ * the helpers described beyond
+ */
+
+struct res_counter {
+    /*
+     * the current resource consumption level
+     */
+    unsigned long long usage;
+    /*
+     * the maximal value of the usage from the counter creation
+     */
+    unsigned long long max_usage;
+    /*
+     * the limit that usage cannot exceed
+     */
+    unsigned long long limit;
+    unsigned long long low_wmark_limit;
+    unsigned long long high_wmark_limit;
+    /*
+     * the limit that usage can be exceed
+     */
+    unsigned long long soft_limit;
+    /*
+     * the number of unsuccessful attempts to consume the resource
+     */
+    unsigned long long failcnt;
+    /*
+     * the lock to protect all of the above.
+     * the routines below consider this to be IRQ-safe
+     */
+    spinlock_t lock;
+    /*
+     * Parent counter, used for hierarchial resource accounting
+     */
+    struct res_counter *parent;
+};
+
+Accounting
+
+        +--------------------+
+        |  mem_cgroup     |
+        |  (res_counter)     |
+        +--------------------+
+         /            ^      \
+        /             |       \
+           +---------------+  |        +---------------+
+           | mm_struct     |  |....    | mm_struct     |
+           |               |  |        |               |
+           +---------------+  |        +---------------+
+                              |
+                              + --------------+
+                                              |
+           +---------------+           +------+--------+
+           | page          +---------->  page_cgroup|
+           |               |           |               |
+           +---------------+           +---------------+
+
+             (Figure 1: Hierarchy of Accounting)
+
+
+Figure 1 shows the important aspects of the controller
+
+1. Accounting happens per cgroup
+2. Each mm_struct knows about which cgroup it belongs to
+3. Each page has a pointer to the page_cgroup, which in turn knows the
+   cgroup it belongs to
+
+
+```
+
+###### Key Function:
+
+**Init Function**\br
+这个函数用于初始化一个 res_counter。\br
+```
+void res_counter_init(struct res_counter *counter, struct res_counter *parent)
+{
+    spin_lock_init(&counter->lock);
+    counter->limit = RESOURCE_MAX;
+    counter->soft_limit = RESOURCE_MAX;
+    counter->low_wmark_limit = RESOURCE_MAX;
+    counter->high_wmark_limit = RESOURCE_MAX;
+    counter->parent = parent;
+}
+
+```
+
+**res_counter_charge()**:\br
+当资源将要被分配的 时候，资源就要被记录到相应的res_counter里。这个函数作用就是记录进程组使用的资源。 在这个函数中有:\br
+
+```
+for (c = counter; c != limit; c = c->parent) {
+    spin_lock(&c->lock);
+    r = res_counter_charge_locked(c, val, force);
+    spin_unlock(&c->lock);
+    if (r < 0 && !ret) {
+        ret = r;
+        if (limit_fail_at)
+            *limit_fail_at = c;
+        if (!force)
+            break;
+    }
+}
+
+```
+
+```
+int res_counter_charge(struct res_counter *counter, unsigned long val,
+            struct res_counter **limit_fail_at)
+{
+    return __res_counter_charge_until(counter, val, NULL, limit_fail_at, false);
+}
+
+static int __res_counter_charge_until(struct res_counter *counter,
+        unsigned long val, struct res_counter *limit,
+                struct res_counter **limit_fail_at, bool force)
+{
+    int ret, r;
+    unsigned long flags;
+    struct res_counter *c, *u;
+
+    r = ret = 0;
+    if (limit_fail_at)
+        *limit_fail_at = NULL;
+    local_irq_save(flags);
+    for (c = counter; c != limit; c = c->parent) {
+        spin_lock(&c->lock);
+        r = res_counter_charge_locked(c, val, force);
+        spin_unlock(&c->lock);
+        if (r < 0 && !ret) {
+            ret = r;
+            if (limit_fail_at)
+                *limit_fail_at = c;
+            if (!force)
+                break;
+        }
+    }
+
+    if (ret < 0 && !force) {
+        for (u = counter; u != c; u = u->parent) {
+            spin_lock(&u->lock);
+            res_counter_uncharge_locked(u, val);
+            spin_unlock(&u->lock);
+        }
+    }
+    local_irq_restore(flags);
+
+    return ret;
+}
+
+```
