@@ -1495,3 +1495,91 @@ page_cgroup
 
 ```
 2. page_cgroup 又是被谁调用呢？ I mean 被哪个结构体包含？如果是page 结构体，它们之间是如何联系起来的呢？</br>
+**A:** maybe, 每个 mm_struct知道它属于的进程，进而知道所属的mem_cgroup，而每个page都知道它属于的 page_cgroup，进而也知道所属的mem_cgroup，而内存使用量的计算是按**cgroup**为单位的， 这样以来，内存资源的管理就可以实现了。</br>
+
+如果是这样的话，那么对应的关系是这样？below:</br>
+page->mm_struct->task->cgroup->mem_cgroup->page_cgroup</br>
+I'm not sure.</br>
+
+
+##### Charge memory的时机：
+
+1. page fault发生时，有两种情况内核需要给进程分配新的页框。一种是进程请求调页 (demand paging)，另一种是copy on write。
+2. 内核在handle_pte_fault中进行处理时，还有一种情况是pte存在且页又没有映射文件。
+3. 当 内 核 将 page 加 入 到 page cache 中 时 ， 也 需 要 进 行 charge 操 作。
+4. 最后mem_cgroup_prepare_migration是用于处理内存迁移中的charge操作。
+
+
+Regarding **NO.1**, 下面总结的非常好：</br>
+内核在handle_pte_fault中进行处理。 其 中 ， do_linear_fault 处 理 pte 不 存 在 且 页 面 线 性 映 射 了 文 件 的 情 况 ， do_anonymous_page处理pte不存在且页面没有映射文件的情况，do_nonlinear_fault 处理pte存在且页面非线性映射文件的情况，do_wp_page则处理copy on write的情况。 其中do_linear_fault和do_nonlinear_fault都会调用__do_fault来处理。Memory子系 统则__do_fault、do_anonymous_page、do_wp_page植入mem_cgroup_newpage_charge 来进行charge操作。</br>
+
+实际上就是将下面函数进行的总结：</br>
+```
+/*
+ * These routines also need to handle stuff like marking pages dirty
+ * and/or accessed for architectures that don't do it in hardware (most
+ * RISC architectures).  The early dirtying is also good on the i386.
+ *
+ * There is also a hook called "update_mmu_cache()" that architectures
+ * with external mmu caches can use to update those (ie the Sparc or
+ * PowerPC hashed page tables that act as extended TLBs).
+ *
+ * We enter with non-exclusive mmap_sem (to exclude vma changes,
+ * but allow concurrent faults), and pte mapped but not yet locked.
+ * We return with mmap_sem still held, but pte unmapped and unlocked.
+ */
+static int handle_pte_fault(struct mm_struct *mm,
+             struct vm_area_struct *vma, unsigned long address,
+             pte_t *pte, pmd_t *pmd, unsigned int flags)
+{
+    pte_t entry;
+    spinlock_t *ptl;
+
+    entry = *pte;
+    if (!pte_present(entry)) {
+        if (pte_none(entry)) {
+            if (vma->vm_ops)
+                return do_linear_fault(mm, vma, address,
+                        pte, pmd, flags, entry);
+            return do_anonymous_page(mm, vma, address,
+                         pte, pmd, flags);
+        }
+        if (pte_file(entry))
+            return do_nonlinear_fault(mm, vma, address,
+                    pte, pmd, flags, entry);
+        return do_swap_page(mm, vma, address,
+                    pte, pmd, flags, entry);
+    }
+
+    if (pte_numa(entry))
+        return do_numa_page(mm, vma, address, entry, pte, pmd);
+
+    ptl = pte_lockptr(mm, pmd);
+    spin_lock(ptl);
+    if (unlikely(!pte_same(*pte, entry)))
+        goto unlock;
+    if (flags & FAULT_FLAG_WRITE) {
+        if (!pte_write(entry))
+            return do_wp_page(mm, vma, address,
+                    pte, pmd, ptl, entry);
+        entry = pte_mkdirty(entry);
+    }
+    entry = pte_mkyoung(entry);
+    if (ptep_set_access_flags(vma, address, pte, entry, flags & FAULT_FLAG_WRITE)) {
+        update_mmu_cache(vma, address, pte);
+    } else {
+        /*
+         * This is needed only for protection faults but the arch code
+         * is not yet telling us if this is a protection fault or not.
+         * This still avoids useless tlb flushes for .text page faults
+         * with threads.
+         */
+        if (flags & FAULT_FLAG_WRITE)
+            flush_tlb_fix_spurious_fault(vma, address);
+    }
+unlock:
+    pte_unmap_unlock(pte, ptl);
+    return 0;
+}
+
+```
