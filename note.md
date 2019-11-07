@@ -1613,3 +1613,11 @@ shmem_unuse
 shmem_getpage_gfp
   ->mem_cgroup_cache_charge
 ```
+
+Regarding **NO.5**:</br>
+```
+__unmap_and_move
+migrate_misplaced_transhuge_page
+  ->mem_cgroup_prepare_migration
+
+```
