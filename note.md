@@ -1485,3 +1485,13 @@ struct page_cgroup {
 };
 
 ```
+**Q:**
+1. page_cgroup 包含 mem_cgroup。。。。 这是一种神马关系呢？</br>
+
+```
+page_cgroup
+  -> mem_cgroup
+  ->res_counter ->cgroup_subsys_state ->cgroup ->task
+
+```
+2. page_cgroup 又是被谁调用呢？ I mean 被哪个结构体包含？如果是page 结构体，它们之间是如何联系起来的呢？</br>
