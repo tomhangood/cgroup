@@ -1621,3 +1621,11 @@ migrate_misplaced_transhuge_page
   ->mem_cgroup_prepare_migration
 
 ```
+
+##### Uncharge memory 时机：
+
+1. mem_cgroup_uncharge_page用于当匿名页完全unmaped的时候。
+2. mem_cgroup_uncharge_cache_page用于page cache从radix-tree删除的时候.
+3. mem_cgroup_uncharge_swapcache用于swap cache从radix-tree删除的时候.
+4. mem_cgroup_uncharge_swap用于swap_entry的引用数减到0的时候.
+5. mem_cgroup_end_migration用于内存迁移结束时相关的uncharge操作。
