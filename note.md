@@ -1720,3 +1720,24 @@ h.    可以选择关闭oom-killer，并支持oom的通知机制；
 i.      Root cgroup不存在任何限制；
 
 ————————————————
+
+**memcg** 主要有两个纬度的限制：
+1. Res – 物理内存。
+2. Memsw – memory + swap，即物理内存 + swap内。
+
+**res_counter** 结构中可以看出，每个维度又有三个指标：
+1. Usage – 组内进程已经使用的内存。
+2. Soft_limit – 软限制，非强制内存上限，usage超过这个上限后，组内进程使用的内存可能会加快步伐进行回收。
+3. Hard_limit – 硬限制，强制内存上限，usage不能超过这个上限，如果试图超过，则会触发同步的内存回收，或者触发OOM。
+
+hard_limit是真正的内存限制，soft_limit只是为了实现更好的内存使用效果而做的辅助，而usage则是内核实时统计该组进程内存的使用值。
+
+![Alt text](/pic/relationship.jpeg)
+
+概括为三点：
+
+a.     统计针对每一个cgroup进行；
+
+b.    每个cgroup中的进程，它的mm_struct知道自己属于哪个cgroup；
+
+c.     每个page对应一个page_cgroup，而page_cgroup知道自己属于哪个memcg；
