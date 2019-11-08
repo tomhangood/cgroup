@@ -1797,3 +1797,11 @@ mem_cgroup_memsw_limit
           |-> shrink_zone
             ->shrink_lruvec
 ```
+
+即在三种情况下触发reclaim：
+
+a.     Do_charge时发现超过limit限制。
+
+b.    修改limit设置。
+
+c.     修改memsw_limit设置。
