@@ -1741,3 +1741,59 @@ a.     统计针对每一个cgroup进行；
 b.    每个cgroup中的进程，它的mm_struct知道自己属于哪个cgroup；
 
 c.     每个page对应一个page_cgroup，而page_cgroup知道自己属于哪个memcg；
+
+##### 简单总结下
+
+某进程在需要统计的地方调用mem_cgroup_charge()来进行必要的结构体设置（增加计数等），判断增加计数后进程所在的cgroup的内存使用是否超过限制，如果超过了，则触发reclaim机制进行内存回收，如果回收后依然超过限制，则触发oom或阻塞机制等待；如果增加计数后没有超过限制，则更新相应page对应的page_cgroup，完成统计计数的修改，并将相应的page放到对应的LRU中进行管理。</br>
+
+
+在memcg的内存统计逻辑中，有几个 **基本思想**：
+
+a.     一个page最多只会被charge一次，并且一般就charge在第一次使用这个page的那个进程所在的memcg上。
+
+b.    如果有多个memcg的进程引用了同一个page，该page也只会被统计在一个memcg中。
+
+c.     Unchage往往跟page的释放相对应，所以可能存在某个进程不再使用某个page，但是对该page的统计还是记录在进程所在的memcg中，因为可能还有其他memcg中的进程在使用这个page，只要page无法释放，memcg就无法unchage。
+
+
+Page_cgroup：每个page对应一个，跟page结构体一样，在系统启动的时候或内存热插入的时候分配，在内存热拔除的时候释放。</br>
+```
+struct page_cgroup {
+    unsigned long flags;
+    struct mem_cgroup *mem_cgroup;
+    unsigned short id;
+};
+
+```
+
+Swap_cgroup：每个对应一个swp_entry，在swapon()的时候分配，swapoff()的时候释放.</br>
+```
+struct swap_cgroup {
+    unsigned short      id;
+};
+
+```
+其中的id是对应memcg在cgroup体系中的id，通过它可以找到对应的memcg.</br>
+
+
+
+#### Memcg的reclaim流程:
+
+下面虚线框起来的部分，属于memcg的调用流程
+```
+mem_cgroup_do_charge
+mem_cgroup_resize_limit
+mem_cgroup_memsw_limit
+  -> mem_cgroup_reclaim
+    -> try_to_free_mem_cgroup_pages
+      -> do_try_to_free_pages
+        -> shrink_zones
+          -------------------------------------------
+          | -> mem_cgroup_soft_limit_reclaim
+          |   -> mem_cgroup_soft_reclaim
+          |     -> mem_cgroup_shrink_node_zone
+          |       -> shrink_lruvec
+          -------------------------------------------
+          |-> shrink_zone
+            ->shrink_lruvec
+```
