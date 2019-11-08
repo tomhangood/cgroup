@@ -1629,3 +1629,47 @@ migrate_misplaced_transhuge_page
 3. mem_cgroup_uncharge_swapcache用于swap cache从radix-tree删除的时候.
 4. mem_cgroup_uncharge_swap用于swap_entry的引用数减到0的时候.
 5. mem_cgroup_end_migration用于内存迁移结束时相关的uncharge操作。
+
+
+#### cgroup_subsys
+
+跟其他子系统一样，memory子系统也实现了一个cgroup_subsys。
+
+```
+struct cgroup_subsys mem_cgroup_subsys = {
+    .name = "memory",
+    .subsys_id = mem_cgroup_subsys_id,
+    .css_alloc = mem_cgroup_css_alloc,
+    .css_online = mem_cgroup_css_online,
+    .css_offline = mem_cgroup_css_offline,
+    .css_free = mem_cgroup_css_free,
+    .can_attach = mem_cgroup_can_attach,
+    .cancel_attach = mem_cgroup_cancel_attach,
+    .attach = mem_cgroup_move_task,
+    .bind = mem_cgroup_bind,
+    .base_cftypes = mem_cgroup_files,
+    .early_init = 0,
+    .use_id = 1,
+};
+
+```
+
+Memory子系统中重要的文件有</br>
+```
+static struct cftype memsw_cgroup_files[] = {
+  ....
+  {
+      .name = "memsw.limit_in_bytes",
+      .private = MEMFILE_PRIVATE(_MEMSWAP, RES_LIMIT),
+      .write_string = mem_cgroup_write,
+      .read = mem_cgroup_read,
+  },
+  {
+    .name = "limit_in_bytes",
+    .private = MEMFILE_PRIVATE(_MEM, RES_LIMIT),
+    .write_string = mem_cgroup_write,
+    .read = mem_cgroup_read,
+  },
+  ....
+}
+```
