@@ -1778,8 +1778,15 @@ struct swap_cgroup {
 
 
 #### Memcg的reclaim流程:
+说个大前提：memory cgroup的reclaim的流程和内核本身的回收代码基本融合。</br>
 
-下面虚线框起来的部分，属于memcg的调用流程
+首先看一下，页框回收算法的执行三中基本情况：</br>
+1. 内存紧缺回收
+2. 睡眠回收
+3. 周期回收
+
+了解了基本页框回收算法后，再看下memory cgroup的整个reclaim流程：</br>
+下面虚线框起来的部分，属于memcg的调用流程:</br>
 ```
 mem_cgroup_do_charge
 mem_cgroup_resize_limit
@@ -1805,3 +1812,8 @@ a.     Do_charge时发现超过limit限制。
 b.    修改limit设置。
 
 c.     修改memsw_limit设置。
+
+在使用memory cgroup之后，reclaim中会经常看到两个概念：global reclaim 和 target reclaim，即全局回收和局部/目标回收，前者的对象是所有的内存，后者是针对单个cgroup，但全局回收也是以单个memcg为单位的.</br>
+
+
+#### Memcg的命令的实现：
