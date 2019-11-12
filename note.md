@@ -1815,5 +1815,25 @@ c.     修改memsw_limit设置。
 
 在使用memory cgroup之后，reclaim中会经常看到两个概念：global reclaim 和 target reclaim，即全局回收和局部/目标回收，前者的对象是所有的内存，后者是针对单个cgroup，但全局回收也是以单个memcg为单位的.</br>
 
+##### Soft_limit
+###### 1. shrink_lruvec
+```
+shrink_lruvec
+```
+在页面回收中，shrink_lruvec后面还有很多事情要做，还要调用shrink_list – shrink_inactive_list – shrink_page_list，然后调用try_to_unmap解除映射或pageout将脏页写回磁盘，然后调free_hot_cold_page_list回收页面内存。这里还省略了很多细节，不过这些太过底层，是内核内存回收的底层固有机制，跟mem_cgroup无关，故不在本文的讨论范围内，在这里我们只需要关心如何获取到lruvec，然后调用shrink_lruvec即可完成内存回收。</br>
+
+```
+struct lruvec {
+    struct list_head lists[NR_LRU_LISTS];
+    struct zone_reclaim_stat reclaim_stat;
+#ifdef CONFIG_MEMCG
+    struct zone *zone;
+#endif
+};
+
+```
+就是一个lru链表的集合，可能包括active或inactive等。
+
+
 
 #### Memcg的命令的实现：
