@@ -2060,7 +2060,7 @@ mem_cgroup
 该函数的目的是回收该zone上超过soft_limit最多的mem_cgroup在该zone上mem_cgroup_per_zone对应的lru链表。
 
 ##### Soft_limit_tree
-![Alt text](/pic/soft_limit_tree.jpeg)</br>
+//![Alt text](/pic/soft_limit_tree.jpeg)</br>
 
 ```
 /*
@@ -2095,7 +2095,12 @@ mem_cgroup_tree_per_zone   mem_cgroup_tree_per_zone
         (rb_node)
         /         \
       /             \
-mem_cgroup_per_zone  mem_cgroup_per_zone  
+mem_cgroup_per_zone  mem_cgroup_per_zone
+      (rb_node)         (rb_node)
+                      /           \
+                     /              \
+              mem_cgroup_per_zone   mem_cgroup_per_zone
+
 ```
 **WHY** need this rb tree structure?</br>
 
