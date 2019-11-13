@@ -1502,7 +1502,9 @@ page->mm_struct->task->cgroup->mem_cgroup->page_cgroup</br>
 I'm not sure.</br>
 
 -----------
+
 ###### 上面说了memcg管理和统计内存，都是以page为最小单位的 那么内核中使用page的地方那么多，我们怎么去一一统计呢
+
 -----------
 
 ##### Charge memory的时机：
@@ -1626,7 +1628,9 @@ migrate_misplaced_transhuge_page
 ```
 
 ------------
+
 ###### charge主要在page cache和anon page的几个使用场景发生，另外，还有一个迁移的情况。(uncharge)
+
 ------------
 
 ##### Uncharge memory 时机：
@@ -1783,6 +1787,7 @@ struct swap_cgroup {
 其中的id是对应memcg在cgroup体系中的id，通过它可以找到对应的memcg.</br>
 
 ----------
+
 ###### charge 的合法性检查：（不知道是否可以charge成功，或者charge是否是合法）
 1. 提供三类函数：
   a)Mem_cgroup_try_charge_XXX
@@ -1791,6 +1796,7 @@ struct swap_cgroup {
 2. 在try_charge的时候，不会设置flag来说明“这个page已经被charge过了”，而只是做 usage += PAGE_SIZE：
 
 在cancel的时候，只是简单的做usage -= PAGE_SIZE
+
 ----------
 
 #### Memcg的reclaim流程:
@@ -1802,7 +1808,7 @@ struct swap_cgroup {
 3. 周期回收
 
 了解了基本页框回收算法后，再看下memory cgroup的整个reclaim流程：</br>
-下面虚线框起来的部分，属于memcg的调用流程:</br>
+下面虚线框起来的部分，只有在全局reclaim的时候才会走:</br>
 ```
 mem_cgroup_do_charge
 mem_cgroup_resize_limit
@@ -1821,7 +1827,7 @@ mem_cgroup_memsw_limit
             ->shrink_lruvec
 ```
 
-即在三种情况下触发reclaim：
+即在三种情况下触发reclaim：（还有一种就是kswapd 全局回收，同时kswapd是异步回收，其他是同步）
 
 a.     Do_charge时发现超过limit限制。
 
@@ -1829,7 +1835,54 @@ b.    修改limit设置。
 
 c.     修改memsw_limit设置。
 
+(d.    kswapd 会先调用mem_cgroup_soft_limit_reclaim进行group内的内存回收)
+
 在使用memory cgroup之后，reclaim中会经常看到两个概念：global reclaim 和 target reclaim，即全局回收和局部/目标回收，前者的对象是所有的内存，后者是针对单个cgroup，但全局回收也是以单个memcg为单位的.</br>
+
+---------
+
+**这个地方再细分下3.10和4.14内核的情况**
+
+**3.10**</br>
+```
+mem_cgroup_resize_limit
+  mem_cgroup_reclaim  ========> MEM_CGROUP_RECLAIM_SHRINK
+    try_to_free_mem_cgroup_pages
+      do_try_to_free_pages
+        shrink_zones
+          shrink_zone
+            shrink_lruvec //This is a basic per-zone page freer.  Used by both kswapd and direct reclaim.
+              shrink_list
+                shrink_active_list
+                shrink_inactive_list
+                  shrink_page_list //returns the number of reclaimed pages
+
+
+        
+```
+有关shrink_zones的函数注释：</br>
+
+--------------
+
+这是页分配进程的直接回收路径。我们只尝试从满足调用方分配请求的区域中回收页面。
+
+我们从一个区域中回收，即使该区域超过了high_wmark_pages(zone)。因为：
+
+a）调用者可能试图释放*额外*页以满足更higher-order的分配，或者
+
+b）目标区域可能位于high_wmark_pages(zone)，但低区域必须超过high_wmark_pages(zone)），以满足“增量最小”区域防御算法。
+
+如果一个区域被认为满是固定页面，那么只需轻轻扫描一下，然后放弃。
+
+如果正在为代价高昂的high-order分配回收区域，并且压缩准备就绪，则此函数返回true。这向调用方指示，它应考虑重试分配，而不是进一步回收。
+
+---------------
+
+**4.14**</br>
+```
+
+
+```
 
 ##### Soft_limit
 ###### 1. shrink_lruvec
