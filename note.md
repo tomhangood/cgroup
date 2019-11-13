@@ -1858,8 +1858,27 @@ mem_cgroup_resize_limit
                   shrink_page_list //returns the number of reclaimed pages
 
 
-        
+
 ```
+
+**shrink_page_list**</br>
+![Alt text](/pic/shrink_page_list.jpeg)</br>
+```
+1、如果页面被锁住了，放入继续将页面保留在inactive list中，后就再扫描到底时候再试图回收这些page
+2、如果回写控制结构体标记了不允许进行unmap操作，将那些在pte表项中有映射到页面保留在inactive list中。
+3、对于正在回写中的页面，如果是同步操作，等待页面回写完成。如果是异步操作，将page继续留在inactive list中，等待以后扫描再回收释放。
+4、如果检查到page又被访问了，这个时候page有一定的机会回到active list链表中。必须满足一下条件
+a、page被访问，page_referenced检查
+b、order小于3，也就是系统趋向于回收较大的页面。对于较小的页面趋向于保留在active list中
+c、page_mapping_inuse检查，这个函数在上面的文章中已经分析
+
+5、如果是匿名页面，并且不在swap缓冲区中，将page加入到swap的缓冲区中。
+6、如果页面被映射了，调用unmap函数
+7、如果页面是脏也，需要向将页面内容换出，调用pateout
+8、如果页面和buffer相关联，将buffer释放掉，调用try_to_release_page函数
+9、调用__remove_mapping 将页面回收归还伙伴系统。
+```
+
 有关shrink_zones的函数注释：</br>
 
 --------------
