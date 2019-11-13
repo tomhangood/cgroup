@@ -2102,7 +2102,7 @@ mem_cgroup_per_zone  mem_cgroup_per_zone
               mem_cgroup_per_zone   mem_cgroup_per_zone
 
 ```
-**WHY** need this rb tree structure?</br>
-
+**Q:WHY** need this rb tree structure?</br>
+**A:** by now，我的理解就是在页面回收的时候，根据这棵树，从node找到zone，再从zone的root，找出各个rb_node,然后就可以可以找到所有相关的mem_cgroup_per_zone来进行相关操作。</br>
 
 #### Memcg的命令的实现：
