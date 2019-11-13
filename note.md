@@ -1501,6 +1501,9 @@ page_cgroup
 page->mm_struct->task->cgroup->mem_cgroup->page_cgroup</br>
 I'm not sure.</br>
 
+-----------
+###### 上面说了memcg管理和统计内存，都是以page为最小单位的 那么内核中使用page的地方那么多，我们怎么去一一统计呢
+-----------
 
 ##### Charge memory的时机：
 
@@ -1621,6 +1624,10 @@ migrate_misplaced_transhuge_page
   ->mem_cgroup_prepare_migration
 
 ```
+
+------------
+###### charge主要在page cache和anon page的几个使用场景发生，另外，还有一个迁移的情况。(uncharge)
+------------
 
 ##### Uncharge memory 时机：
 
@@ -1775,7 +1782,16 @@ struct swap_cgroup {
 ```
 其中的id是对应memcg在cgroup体系中的id，通过它可以找到对应的memcg.</br>
 
+----------
+###### charge 的合法性检查：（不知道是否可以charge成功，或者charge是否是合法）
+1. 提供三类函数：
+  a)Mem_cgroup_try_charge_XXX
+  b)Mem_cgroup_commit_charge_XXX
+  c)Mem_cgroup_cancel_charge_XXX
+2. 在try_charge的时候，不会设置flag来说明“这个page已经被charge过了”，而只是做 usage += PAGE_SIZE：
 
+在cancel的时候，只是简单的做usage -= PAGE_SIZE
+----------
 
 #### Memcg的reclaim流程:
 说个大前提：memory cgroup的reclaim的流程和内核本身的回收代码基本融合。</br>
