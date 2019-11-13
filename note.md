@@ -2081,6 +2081,23 @@ struct mem_cgroup_tree {
     struct mem_cgroup_tree_per_node *rb_tree_per_node[MAX_NUMNODES];
 };
 
+         mem_cgroup_tree
+      /                   \
+     /                     \
+mem_cgroup_tree_per_node    mem_cgroup_tree_per_node
+     /                  \
+    /                     \
+mem_cgroup_tree_per_zone   mem_cgroup_tree_per_zone
+        (rb_root)
+            |
+            |
+    mem_cgroup_per_zone
+        (rb_node)
+        /         \
+      /             \
+mem_cgroup_per_zone  mem_cgroup_per_zone  
 ```
+**WHY** need this rb tree structure?</br>
+
 
 #### Memcg的命令的实现：
