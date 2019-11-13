@@ -1846,7 +1846,7 @@ c.     修改memsw_limit设置。
 **3.10**</br>
 ```
 mem_cgroup_resize_limit
-  mem_cgroup_reclaim  ========> MEM_CGROUP_RECLAIM_SHRINK
+  mem_cgroup_reclaim  ========> MEM_CGROUP_RECLAIM_SHRINK | MEM_CGROUP_RECLAIM_NOSWAP
     try_to_free_mem_cgroup_pages
       do_try_to_free_pages
         shrink_zones
@@ -1858,8 +1858,26 @@ mem_cgroup_resize_limit
                   shrink_page_list //returns the number of reclaimed pages
 
 
+kswapd
+  balance_pgdat
+    mem_cgroup_soft_limit_reclaim
+      mem_cgroup_soft_reclaim
+        mem_cgroup_shrink_node_zone
 
 ```
+**balance_pgdat**</br>
+
+----------
+
+对于kswapd，balance_pgdat（）将在该节点的所有区域中工作，直到它们都位于高页面（区域）。
+
+返回kswapd在回收的最终订单
+
+对于满是固定页的区域，这里有特殊的处理方法。如果所有页都被锁定，或者设备驱动程序（如ZONE_DMA）都在使用这些页，就会发生这种情况。或者它们都被hugetlb使用。我们要做的是检测这样的情况：区域中的所有页面都被扫描了两次，并且没有成功的回收。将区域标记为死区，从现在开始，只执行一次短扫描。基本上，当问题消失的时候，我们会对区域进行轮询。
+
+kswapd扫描highmem->normal->dma方向的区域。它会跳过具有free_pages > high_wmark_pages(zone)，但一旦发现某个区域具有free_pages <= high_wmark_pages(zone)，我们将扫描该区域和较低区域，而不考虑较低区域中可用页的数量。此操作与页分配器回退方案进行互操作，以确保跨区域平衡页的老化。
+
+----------
 
 **shrink_page_list**</br>
 ![Alt text](/pic/shrink_page_list.jpeg)</br>
