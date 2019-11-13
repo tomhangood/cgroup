@@ -2051,6 +2051,9 @@ mem_cgroup
 
 ```
 **NOTE:**</br>
-注意 node->zone->lruvec的关系
+1. 注意 node->zone->lruvec的关系</br>
+2. 一个mem_cgroup_per_zone维护了一个mem_cgroup在某个zone上使用的内存，它跟mem_cgroup是多对一的关系。</br>
+3. **对内存回收的单位是lruvec**</br>
+
 
 #### Memcg的命令的实现：
