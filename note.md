@@ -1858,13 +1858,77 @@ mem_cgroup_resize_limit
                   shrink_page_list //returns the number of reclaimed pages
 
 
-kswapd
+kswapd ======================> only soft? noswap and shrink
   balance_pgdat
+    kswapd_shrink_zone
+      shrink_zone
+      shrink_slab
     mem_cgroup_soft_limit_reclaim
       mem_cgroup_soft_reclaim
         mem_cgroup_shrink_node_zone
+          shrink_lruvec
+
+mem_cgroup_do_charge
+  mem_cgroup_reclaim
+    try_to_free_mem_cgroup_pages
+      do_try_to_free_pages
+        shrink_zones
+
+__mem_cgroup_try_charge
+  mem_cgroup_do_charge
+
+mem_cgroup_force_empty
+  try_to_free_mem_cgroup_pages
 
 ```
+
+**Key Structure**</br>
+```
+struct scan_control {
+    /* Incremented by the number of inactive pages that were scanned */
+    unsigned long nr_scanned;
+
+    /* Number of pages freed so far during a call to shrink_zones() */
+    unsigned long nr_reclaimed;
+
+    /* How many pages shrink_list() should reclaim */
+    unsigned long nr_to_reclaim;
+
+    unsigned long hibernation_mode;
+
+    /* This context's GFP mask */
+    gfp_t gfp_mask;
+
+    int may_writepage;
+
+    /* Can mapped pages be reclaimed? */
+    int may_unmap;
+
+    /* Can pages be swapped as part of reclaim? */
+    int may_swap;
+
+    int order;
+
+    /* Scan (total_size >> priority) pages at once */
+    int priority;
+
+    bool resize;
+
+   /*
+    * The memory cgroup that hit its limit and as a result is the
+    * primary target of this reclaim invocation.
+    */
+    struct mem_cgroup *target_mem_cgroup;
+
+   /*
+    * Nodemask of nodes allowed by the caller. If NULL, all nodes
+    * are scanned.
+    */
+    nodemask_t  *nodemask;
+};
+
+```
+
 **balance_pgdat**</br>
 
 ----------
