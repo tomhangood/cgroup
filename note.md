@@ -2037,7 +2037,7 @@ mem_cgroup_zoneinfo(struct mem_cgroup *memcg, int nid, int zid)
 
 ```
 即每个mem_cgroup中有个类型为mem_cgroup_lru_info的成员info，通过它以及node_id和zone_id，即可找到对应的mem_cgroup_per_zone，从而得到lruvec。</br>
-
+### 重点理解这几个结构体
 **几个重要结构体的关系**</br>
 ```
 mem_cgroup
@@ -2054,6 +2054,33 @@ mem_cgroup
 1. 注意 node->zone->lruvec的关系</br>
 2. 一个mem_cgroup_per_zone维护了一个mem_cgroup在某个zone上使用的内存，它跟mem_cgroup是多对一的关系。</br>
 3. **对内存回收的单位是lruvec**</br>
+4. 内存回收的接口，其参数都是**zone**，而对于物理内存，首先分内存节点，即node，然后每个内存节点上有多个zone，而一个zone上的内存可能被多个mem_cgroup使用，但反过来，一个mem_cgroup可能使用多个zone，甚至多个node上的内存。所以mem_cgroup结构体中的info成员可以通过node_id和zone_id找到对的mem_cgroup_per_zone.</br>
 
+**mem_cgroup_soft_limit_reclaim**
+该函数的目的是回收该zone上超过soft_limit最多的mem_cgroup在该zone上mem_cgroup_per_zone对应的lru链表。
+
+##### Soft_limit_tree
+![Alt text](/pic/soft_limit_tree.jpeg)</br>
+
+```
+/*
+ * Cgroups above their limits are maintained in a RB-Tree, independent of
+ * their hierarchy representation
+ */
+
+struct mem_cgroup_tree_per_zone {
+    struct rb_root rb_root;
+    spinlock_t lock;
+};
+
+struct mem_cgroup_tree_per_node {
+    struct mem_cgroup_tree_per_zone rb_tree_per_zone[MAX_NR_ZONES];
+};
+
+struct mem_cgroup_tree {
+    struct mem_cgroup_tree_per_node *rb_tree_per_node[MAX_NUMNODES];
+};
+
+```
 
 #### Memcg的命令的实现：
