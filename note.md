@@ -1837,7 +1837,7 @@ c.     修改memsw_limit设置。
 
 (d.    kswapd 会先调用mem_cgroup_soft_limit_reclaim进行group内的内存回收)
 
-在使用memory cgroup之后，reclaim中会经常看到两个概念：global reclaim 和 target reclaim，即全局回收和局部/目标回收，前者的对象是所有的内存，后者是针对单个cgroup，但全局回收也是以单个memcg为单位的.</br>
+在使用memory cgroup之后，reclaim中会经常看到两个概念：**global reclaim** 和 **target reclaim**，即全局回收和局部/目标回收，前者的对象是所有的内存，后者是针对单个cgroup，但全局回收也是以单个memcg为单位的.</br>
 
 ---------
 
@@ -2008,6 +2008,49 @@ struct lruvec {
 ```
 就是一个lru链表的集合，可能包括active或inactive等。
 
+所有的page都会挂载某个mem_cgroup的某个mem_cgroup_per_zone对应的lru链表上.</br>
+```
+mem_cgroup
+  ->mem_cgroup_lru_info
+    ->mem_cgroup_per_node
+      ->mem_cgroup_per_zone
+        ->lruvec
 
+        struct lruvec {
+            struct list_head lists[NR_LRU_LISTS];
+            struct zone_reclaim_stat reclaim_stat;
+        #ifdef CONFIG_MEMCG
+            struct zone *zone;
+        #endif
+        };
+```
+
+**mem_cgroup_zoneinfo**</br>
+用于获取mem_cgroup_per_zone的函数。</br>
+```
+static struct mem_cgroup_per_zone *
+mem_cgroup_zoneinfo(struct mem_cgroup *memcg, int nid, int zid)
+{
+    VM_BUG_ON((unsigned)nid >= nr_node_ids);
+    return &memcg->info.nodeinfo[nid]->zoneinfo[zid];
+}
+
+```
+即每个mem_cgroup中有个类型为mem_cgroup_lru_info的成员info，通过它以及node_id和zone_id，即可找到对应的mem_cgroup_per_zone，从而得到lruvec。</br>
+
+**几个重要结构体的关系**</br>
+```
+mem_cgroup
+->mem_cgroup_per_node
+  ->mem_cgroup_per_zone[0]
+        .
+        .
+        .
+  ->mem_cgroup_per_zone[MAX_NR_ZONES]
+    ->lruvec
+
+```
+**NOTE:**</br>
+注意 node->zone->lruvec的关系
 
 #### Memcg的命令的实现：
