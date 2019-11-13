@@ -2105,4 +2105,70 @@ mem_cgroup_per_zone  mem_cgroup_per_zone
 **Q:WHY** need this rb tree structure?</br>
 **A:** by now，我的理解就是在页面回收的时候，根据这棵树，从node找到zone，再从zone的root，找出各个rb_node,然后就可以可以找到所有相关的mem_cgroup_per_zone来进行相关操作。</br>
 
+###### Regarding how to maintain this Tree
+
+**mem_cgroup_soft_limit_tree_init**</br>
+
+```
+static void __init mem_cgroup_soft_limit_tree_init(void)
+{
+    struct mem_cgroup_tree_per_node *rtpn;
+    struct mem_cgroup_tree_per_zone *rtpz;
+    int tmp, node, zone;
+
+    for_each_node(node) {
+        tmp = node;
+        if (!node_state(node, N_NORMAL_MEMORY))
+            tmp = -1;
+        rtpn = kzalloc_node(sizeof(*rtpn), GFP_KERNEL, tmp);
+        BUG_ON(!rtpn);
+
+        soft_limit_tree.rb_tree_per_node[node] = rtpn;
+
+        for (zone = 0; zone < MAX_NR_ZONES; zone++) {
+            rtpz = &rtpn->rb_tree_per_zone[zone];
+            rtpz->rb_root = RB_ROOT;
+            spin_lock_init(&rtpz->lock);
+        }
+    }
+}
+
+```
+在初始化调用**mem_cgroup_soft_limit_tree_init**</br>
+```
+mem_cgroup_init
+  mem_cgroup_soft_limit_tree_init
+
+```
+
+什么时机开始创建这颗so_limit_tree呢？check it below：</br>
+```
+mem_cgroup_uncharge_common
+mem_cgroup_remove_from_trees
+__mem_cgroup_commit_charge
+  memcg_check_events
+    mem_cgroup_update_tree
+      __mem_cgroup_remove_exceeded
+      __mem_cgroup_insert_exceeded
+
+
+mem_cgroup_uncharge_common    mem_cgroup_remove_from_trees  __mem_cgroup_commit_charge
+                          \             |                 /
+                            \           |               /
+                              \         |             /
+                                \       |         /
+                                  \     |       /
+                                    \   |     /
+                                      \ |  /
+                                  memcg_check_events
+                                        |
+                                        |
+                               mem_cgroup_update_tree
+                               /                    \
+                              /                       \
+                             /                          \
+              __mem_cgroup_remove_exceeded         __mem_cgroup_insert_exceeded
+              
+```
+
 #### Memcg的命令的实现：
