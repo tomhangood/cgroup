@@ -1199,13 +1199,103 @@ Figure 1 shows the important aspects of the controller
 
 1. Accounting happens per cgroup
 2. Each mm_struct knows about which cgroup it belongs to
-3. Each page has a pointer to the page_cgroup, which in turn knows the
-   cgroup it belongs to
+3. Each page has a pointer to the page_cgroup, which in turn knows the cgroup it belongs to
 
+```
+###### page 和 page_cgroup的关系
+通过下面的两个函数就能够知道:</br>
+
+根据page得到页帧号pfn，再通过page得到对应node上的page_cgroup的base地址，再用页帧号pfn减去page所在node的起始页帧号得到offset，再用base + offset得到对应的page_cgroup的指针
+
+```
+(init/main.c)
+main()
+{
+....
+  page_cgroup_init();
+....
+}
+
+(mm/page_cgroup.c)
+void __init page_cgroup_init(void)
+{
+  unsigned long pfn;
+    int nid;
+
+    if (mem_cgroup_disabled())
+        return;
+
+    for_each_node_state(nid, N_MEMORY) {
+        unsigned long start_pfn, end_pfn;
+
+        start_pfn = node_start_pfn(nid);
+        end_pfn = node_end_pfn(nid);
+        /*
+         * start_pfn and end_pfn may not be aligned to SECTION and the
+         * page->flags of out of node pages are not initialized.  So we
+         * scan [start_pfn, the biggest section's pfn < end_pfn) here.
+         */
+        for (pfn = start_pfn;
+             pfn < end_pfn;
+                     pfn = ALIGN(pfn + 1, PAGES_PER_SECTION)) {
+
+            if (!pfn_valid(pfn))
+                continue;
+            /*
+             * Nodes's pfns can be overlapping.
+             * We know some arch can have a nodes layout such as
+             * -------------pfn-------------->
+             * N0 | N1 | N2 | N0 | N1 | N2|....
+             */
+            if (pfn_to_nid(pfn) != nid)
+                continue;
+            if (init_section_page_cgroup(pfn, nid))
+                goto oom;
+        }
+    }
+    hotplug_memory_notifier(page_cgroup_callback, 0);
+    printk(KERN_INFO "allocated %ld bytes of page_cgroup\n", total_usage);
+    printk(KERN_INFO "please try 'cgroup_disable=memory' option if you "
+             "don't want memory cgroups\n");
+    return;
+oom:
+    printk(KERN_CRIT "try 'cgroup_disable=memory' boot option\n");
+    panic("Out of memory");
+}
+
+(mm/page_cgroup.c)
+struct page_cgroup *lookup_page_cgroup(struct page *page)
+{
+    unsigned long pfn = page_to_pfn(page);
+    unsigned long offset;
+    struct page_cgroup *base;
+
+    base = NODE_DATA(page_to_nid(page))->node_page_cgroup;
+#ifdef CONFIG_DEBUG_VM
+    /*
+     * The sanity checks the page allocator does upon freeing a
+     * page can reach here before the page_cgroup arrays are
+     * allocated when feeding a range of pages to the allocator
+     * for the first time during bootup or memory hotplug.
+     */
+    if (unlikely(!base))
+        return NULL;
+#endif
+    offset = pfn - NODE_DATA(page_to_nid(page))->node_start_pfn;
+    return base + offset;
+}
+```
+
+
+![Alt text](/pic/mem_relationship.png)
+
+##### 3.10.0
 
 ```
 
-![Alt text](/pic/mem_relationship.png)
+
+
+```
 
 ###### Key Function:
 
@@ -2117,7 +2207,7 @@ mem_cgroup_per_zone  mem_cgroup_per_zone
 **关于上面数的两点**
 1. 只有在charge/uncharge/move时，才挂到soft_limit_tree上。
 2. 当没有超过soft_limit的上限时，则将mem_cgroup_per_zone从soft_limit_tree上摘下来。
-3. 综上所述，这颗soft_limit_tree是动态树。
+3. 综上所述，这颗soft_limit_tree是动态树.
 
 **Q:WHY** need this rb tree structure?</br>
 **A:** by now，我的理解就是在页面回收的时候，根据这棵树，从node找到zone，再从zone的root，找出各个rb_node,然后就可以可以找到所有相关的mem_cgroup_per_zone来进行相关操作。</br>
