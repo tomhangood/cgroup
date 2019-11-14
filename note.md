@@ -2114,6 +2114,11 @@ mem_cgroup_per_zone  mem_cgroup_per_zone
               mem_cgroup_per_zone   mem_cgroup_per_zone
 
 ```
+**关于上面数的两点**
+1. 只有在charge/uncharge/move时，才挂到soft_limit_tree上。
+2. 当没有超过soft_limit的上限时，则将mem_cgroup_per_zone从soft_limit_tree上摘下来。
+3. 综上所述，这颗soft_limit_tree是动态树。
+
 **Q:WHY** need this rb tree structure?</br>
 **A:** by now，我的理解就是在页面回收的时候，根据这棵树，从node找到zone，再从zone的root，找出各个rb_node,然后就可以可以找到所有相关的mem_cgroup_per_zone来进行相关操作。</br>
 
