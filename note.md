@@ -1919,6 +1919,20 @@ struct swap_cgroup {
 
 4、 可以直接释放的page frame。各种内存cache（例如 slab内存分配器）中还没有使用的那些page frame、没有使用的dentry cache。
 
+
+但是怎么考虑页面回收的先后顺序呢？Linux内核设定的基本规则如下：
+
+1、 尽量不要修改page table。例如回收各种没有使用的内核cache的时候，我们直接回收，根本不需要修改页表项。而用户空间进程的页面回收往往涉及将对应的pte条目修改为无效状态。
+
+2、 除非调用mlock将page锁定，否则所有的用户空间对应的page frame都应该可以被回收。
+
+3、 如果一个page frame被多个进程共享，那么我们需要清除所有的pte entry，之后才能回收该页面。
+
+4、 不要回收那些最近使用（访问）过的page frame，或者说优先回收那些最近没有访问的page frame。
+
+5、 尽量先回收那些不需要磁盘IO操作的page frame。 
+
+
 了解了基本页框回收算法后，再看下memory cgroup的整个reclaim流程：</br>
 下面虚线框起来的部分，只有在全局reclaim的时候才会走:</br>
 ```
