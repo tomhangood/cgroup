@@ -1909,6 +1909,16 @@ struct swap_cgroup {
 2. 睡眠回收
 3. 周期回收
 
+首先我们需要对page frame进行分类，主要分成4类：
+
+1、 没有办法回收的page frame。包括空闲页面（已经在free list上面，也就不需要劳驾page frame reclaim机制了）、保留页面（设定了PG_reserved，例如内核正文段、数据段等等）、内核动态分配的page frame、用户进程的内核栈上的page frame、临时性的被锁定的page frame（即设定了PG_locked flag，例如在进行磁盘IO的时候）、mlocked page frame（有VM_LOCKED标识的VMA）
+
+2、 可以交换到磁盘的page frame（swappable）。用户空间的匿名映射页面（用户进程堆和栈上的page frame）、tmpfs的page frame。
+
+3、 可以同步到磁盘的page frame（syncable）。用户空间的文件映射（file mapped）页面，page cache中的page frame（其内容会对应到某个磁盘文件），block device的buffered cache、disk cache中的page frame（例如inode cache）
+
+4、 可以直接释放的page frame。各种内存cache（例如 slab内存分配器）中还没有使用的那些page frame、没有使用的dentry cache。
+
 了解了基本页框回收算法后，再看下memory cgroup的整个reclaim流程：</br>
 下面虚线框起来的部分，只有在全局reclaim的时候才会走:</br>
 ```
