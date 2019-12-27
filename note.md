@@ -2324,6 +2324,8 @@ b.    Reclaim
 
 因为父cgroup的统计中包含了所有子cgroup中charge的page，所以在回收父cgroup中使用的内存时，也可以回收子cgroup中进程使用的内存。
 
+**就目前看的代码情况看，这个hierarchy不仅仅时cgroup节点对应的树，还应该包括每个节点内部的subtree，类似父子进程的情况，都会创建mem_cgroup**</br>
+
 ```
 static void shrink_zone(struct zone *zone, struct scan_control *sc)
 {
