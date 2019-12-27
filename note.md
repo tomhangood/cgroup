@@ -1909,30 +1909,6 @@ struct swap_cgroup {
 2. 睡眠回收
 3. 周期回收
 
-首先我们需要对page frame进行分类，主要分成4类：
-
-1、 没有办法回收的page frame。包括空闲页面（已经在free list上面，也就不需要劳驾page frame reclaim机制了）、保留页面（设定了PG_reserved，例如内核正文段、数据段等等）、内核动态分配的page frame、用户进程的内核栈上的page frame、临时性的被锁定的page frame（即设定了PG_locked flag，例如在进行磁盘IO的时候）、mlocked page frame（有VM_LOCKED标识的VMA）
-
-2、 可以交换到磁盘的page frame（swappable）。用户空间的匿名映射页面（用户进程堆和栈上的page frame）、tmpfs的page frame。
-
-3、 可以同步到磁盘的page frame（syncable）。用户空间的文件映射（file mapped）页面，page cache中的page frame（其内容会对应到某个磁盘文件），block device的buffered cache、disk cache中的page frame（例如inode cache）
-
-4、 可以直接释放的page frame。各种内存cache（例如 slab内存分配器）中还没有使用的那些page frame、没有使用的dentry cache。
-
-
-但是怎么考虑页面回收的先后顺序呢？Linux内核设定的基本规则如下：
-
-1、 尽量不要修改page table。例如回收各种没有使用的内核cache的时候，我们直接回收，根本不需要修改页表项。而用户空间进程的页面回收往往涉及将对应的pte条目修改为无效状态。
-
-2、 除非调用mlock将page锁定，否则所有的用户空间对应的page frame都应该可以被回收。
-
-3、 如果一个page frame被多个进程共享，那么我们需要清除所有的pte entry，之后才能回收该页面。
-
-4、 不要回收那些最近使用（访问）过的page frame，或者说优先回收那些最近没有访问的page frame。
-
-5、 尽量先回收那些不需要磁盘IO操作的page frame。 
-
-
 了解了基本页框回收算法后，再看下memory cgroup的整个reclaim流程：</br>
 下面虚线框起来的部分，只有在全局reclaim的时候才会走:</br>
 ```
@@ -2234,7 +2210,9 @@ mem_cgroup_per_zone  mem_cgroup_per_zone
 3. 综上所述，这颗soft_limit_tree是动态树.
 
 **Q:WHY** need this rb tree structure?</br>
-**A:** by now，我的理解就是在页面回收的时候，根据这棵树，从node找到zone，再从zone的root，找出各个rb_node,然后就可以可以找到所有相关的mem_cgroup_per_zone来进行相关操作。</br>
+**A:** 目前明确有关这颗Soft_limit_tree仅用于全局回收，目的是找到超过Softlimit最多的zone。</br>
+**A:** 在cgroup中的局部回收中，就目前看的代码来说，是不涉及这颗树的，所以，这样就可以明确，这棵树实际也可以认为是cgroup中的mem_cgroup间接生成的，因为引入了cgroup的概念，所以，才会有这颗的存在。</br>
+**A:** 因为是mem_cgroup引入的Soft_limit_tree的新数据结构，那么，虽然代码还没看到，但我认为在开启了cgroup的情况下，也是可以进行全局回收的，需要具体看下命令。</br>
 
 ###### Regarding how to maintain this Tree
 
@@ -2301,5 +2279,24 @@ mem_cgroup_uncharge_common    mem_cgroup_remove_from_trees  __mem_cgroup_commit_
               __mem_cgroup_remove_exceeded         __mem_cgroup_insert_exceeded
 
 ```
+---------
+
+**Conclution:**有关mem cgroup的回收</br>
+没有开启CONFIG_MEMCG的情况下：</br>
+page->lru,通过lru字段加入到lru链表。</br>
+
+开启了CONFIG_MEMCG的情况：</br>
+page->mem_cgroup_per_zone====> mem_cgroup.</br>
+此时已经没有全局链表的概念了
+
+相当于在zone->lru中间加入了一层node和zone
+
+全局：</br>
+&zone->lruvec
+
+cgroup：</br>
+&(memcg->info.nodeinfo[nid]->zoneinfo[zid])->lruvec
+
+-----------
 
 #### Memcg的命令的实现：
