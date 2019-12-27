@@ -2299,4 +2299,29 @@ cgroup：</br>
 
 -----------
 
+**Q：** 是每次charge/uncharge/move的时候，都会将超softlimit的zone加入到Soft_limit_tree中吗？即使是cgroup的局部回收的情况？</br>
+
+**Q:** 通过阅读shrink_zone有关局部回收的代码，有些疑问，如下：</br>
+比如一个cgroup中的某个进程进行charge，此时内存不足，那么进行reclaim操作，为什么在reclaim时，会有zone树的存在？还需要进行zonelist的循环？本mem_cgroup对应的各个类型的zong不是可以了吗？为什么在某个zone类型下面扫描树呢？</br>
+
+```
+static void shrink_zone(struct zone *zone, struct scan_control *sc)
+{
+  ...
+  do {
+    ...
+    memcg = mem_cgroup_iter(root, NULL, &reclaim);
+    do {
+        lruvec = mem_cgroup_zone_lruvec(zone, memcg);
+        shrink_lruvec(lruvec, sc, memcg);
+        ...
+        memcg = mem_cgroup_iter(root, memcg, &reclaim);
+    } while (memcg);
+
+  } while (should_continue_reclaim(zone, sc->nr_reclaimed - nr_reclaimed,sc->nr_scanned - nr_scanned, sc));
+  ...
+}
+
+```
+
 #### Memcg的命令的实现：
