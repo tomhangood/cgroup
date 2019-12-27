@@ -2306,6 +2306,24 @@ cgroup：</br>
 
 **A:** 我觉得可能的原因是，cgroup的节点，毕竟是一个进程组，那么不同的进程使用的内存会间接使zone形成树。</br>
 有关这个问题，看了下mem_cgroup_iter()函数代码，发现在开启root->use_hierarchy时，会涉及zone的树问题(确切说，这棵树是per subtree)，需要进一步看代码分析。</br>
+
+下面一段总结很好：</br>
+Memcg的hierarchy
+
+对于memcg，作为一个cgroup的subsystem，它遵循hierarchy的所有规则，另外，对于hierarchy中cgroup的层级对memcg管理规则的影响，主要分两方面：
+
+1、 如果不启用hierarchy，即mem_cgroup->use_hierarchy =false，则所有的memcg之间都是互相独立，互不影响的，即使是父子cgroup之间，也跟两个单独创建的cgroup一样。
+
+2、 如果启用hierarchy，即mem_cgroup->use_hierarchy =true，则memcg的统计需要考虑hierarchy中的层级关系，其影响因素主要有：
+
+a.     Charge/uncharge
+
+如果子cgroup中charge/uncharge了一个page，则其父cgroup和所有祖先cgroup都要charge/uncharge该page。
+
+b.    Reclaim
+
+因为父cgroup的统计中包含了所有子cgroup中charge的page，所以在回收父cgroup中使用的内存时，也可以回收子cgroup中进程使用的内存。
+
 ```
 static void shrink_zone(struct zone *zone, struct scan_control *sc)
 {
