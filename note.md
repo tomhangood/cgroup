@@ -2304,6 +2304,7 @@ cgroup：</br>
 **Q:** 通过阅读shrink_zone有关局部回收的代码，有些疑问，如下：</br>
 比如一个cgroup中的某个进程进行charge，此时内存不足，那么进行reclaim操作，为什么在reclaim时，会有zone树的存在？还需要进行zonelist的循环？本mem_cgroup对应的各个类型的zong不是可以了吗？为什么在某个zone类型下面扫描树呢？</br>
 
+**A:** 我觉得可能的原因是，cgroup的节点，毕竟是一个进程组，那么不同的进程使用的内存会间接使zone形成树。</br>
 ```
 static void shrink_zone(struct zone *zone, struct scan_control *sc)
 {
